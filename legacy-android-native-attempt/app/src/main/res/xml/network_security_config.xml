@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- All external calls (MusicBrainz, Cover Art Archive, Gemini, AcoustID) are HTTPS
+     only - cleartext traffic is disabled by default as a baseline security measure
+     per Claude.md's "protect against bad actors" requirement. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

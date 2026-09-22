@@ -1,0 +1,49 @@
+# Legacy desktop tagger (archived Python app)
+legacy-desktop-tagger/.venv/
+legacy-desktop-tagger/__pycache__/
+legacy-desktop-tagger/**/__pycache__/
+legacy-desktop-tagger/**/*.pyc
+legacy-desktop-tagger/.pytest_cache/
+legacy-desktop-tagger/data/
+legacy-desktop-tagger/build/
+legacy-desktop-tagger/dist/
+
+# User's real music library - never committed (one sample album is the only
+# exception, added explicitly if/when needed)
+Music/
+
+# Legacy native Android attempt (archived, superseded by Expo/React Native)
+legacy-android-native-attempt/.gradle/
+legacy-android-native-attempt/app/build/
+legacy-android-native-attempt/**/build/
+legacy-android-native-attempt/local.properties
+legacy-android-native-attempt/*.iml
+legacy-android-native-attempt/.idea/
+
+# Expo / React Native / Node
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+.metro-health-check*
+*.apk
+*.aab
+*.ipa
+.DS_Store
+
+# Secrets - API keys must never be committed (Gemini/AcoustID keys are entered
+# in-app via Settings and stored via expo-secure-store's Keystore-backed
+# encrypted storage, never in source)
+local.secrets.properties
+*.env
+.env*.local
+
+# Claude Code's own local session/runtime state - not project source
+.claude/scheduled_tasks.lock
