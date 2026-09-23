@@ -20,7 +20,9 @@ legacy-android-native-attempt/local.properties
 legacy-android-native-attempt/*.iml
 legacy-android-native-attempt/.idea/
 
-# Expo / React Native / Node
+# Legacy Expo/React Native attempt (archived, superseded by native Android
+# Studio) - these patterns are unanchored so they also cover
+# legacy-expo-attempt/node_modules/, legacy-expo-attempt/.expo/, etc.
 node_modules/
 .expo/
 dist/

@@ -1,25 +1,20 @@
 import { useCallback, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Link, useFocusEffect } from 'expo-router';
+import { Link, Stack, useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { pickLibraryFolder } from '@/organize/scanner/scanner';
 import { organizeLibrary, OrganizeProgress } from '@/organize/pipeline/organizeLibrary';
 import { getAllTracks, TrackRow } from '@/organize/persistence/database';
 import { getGeminiApiKey, getMusicBrainzContact } from '@/organize/settings/secureSettings';
 import { FileStatus } from '@/organize/model/types';
+import { ProgressBar } from '@/components/ProgressBar';
 
 /**
- * Basic library screen: pick a folder, run it through the organization pipeline,
- * and show the resulting per-file status. This is a functional view onto
- * `pipeline/organizeLibrary.ts`, not the real Tracks/Album/Artist pages from
- * Claude/Design.md (those come in a later phase) - its purpose is to let the
- * pipeline actually be watched working end-to-end on a real device.
+ * Returning-user library screen: the organized track list plus a button to
+ * re-scan/add more. First-time setup lives in `app/index.tsx` instead, which
+ * redirects here once at least one track has been organized.
  *
- * Note: reading embedded tags depends on `@missingcore/audio-metadata`, a
- * third-party native module not bundled into the stock Expo Go app - scanning a
- * real folder needs a custom Expo dev client (EAS Build), not plain Expo Go. If
- * that module isn't available, `readTags` already catches the failure per-file
- * (see `tags/audioTagReader.ts`) and this screen shows it as an per-file error
- * status rather than crashing - screens/navigation still work fine in Expo Go.
+ * See `app/index.tsx` for the Expo Go vs. custom dev client tag-reading caveat.
  */
 export default function LibraryScreen() {
   const [tracks, setTracks] = useState<TrackRow[]>([]);
@@ -61,19 +56,23 @@ export default function LibraryScreen() {
 
   return (
     <View style={styles.container}>
+      <Stack.Screen options={{ title: 'Library' }} />
+
       <View style={styles.header}>
         <Pressable style={styles.button} onPress={onOrganize} disabled={progress !== null}>
           <Text style={styles.buttonText}>{progress ? 'Organizing…' : 'Choose Folder & Organize'}</Text>
         </Pressable>
-        <Link href="/settings" style={styles.settingsLink}>
-          <Text>Settings</Text>
+        <Link href="/settings" asChild>
+          <Pressable style={styles.settingsButton} hitSlop={12}>
+            <Ionicons name="settings-outline" size={24} color="#333" />
+          </Pressable>
         </Link>
       </View>
 
       {progress && (
-        <Text style={styles.progressText}>
-          {progress.phase}: {progress.processed}/{progress.total || '?'}
-        </Text>
+        <View style={styles.progressWrap}>
+          <ProgressBar phase={progress.phase} processed={progress.processed} total={progress.total} />
+        </View>
       )}
       {error && <Text style={styles.errorText}>{error}</Text>}
 
@@ -127,8 +126,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, gap: 16, marginBottom: 8 },
   button: { backgroundColor: '#1565c0', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8 },
   buttonText: { color: 'white', fontWeight: '600' },
-  settingsLink: { marginLeft: 'auto' },
-  progressText: { paddingHorizontal: 16, marginBottom: 8, opacity: 0.7 },
+  settingsButton: { marginLeft: 'auto', padding: 4 },
+  progressWrap: { paddingHorizontal: 16, marginBottom: 8 },
   errorText: { paddingHorizontal: 16, marginBottom: 8, color: '#c62828' },
   empty: { padding: 24, textAlign: 'center', opacity: 0.6 },
   row: { paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: '#ccc' },
