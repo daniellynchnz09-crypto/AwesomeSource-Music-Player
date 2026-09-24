@@ -6,12 +6,16 @@ CURRENT (native Android, Kotlin - see Claude/ANDROID ARCHITECTURE.md for full co
 
 The project is back on native Android after two prior attempts (native Kotlin, then
 Expo/React Native - both archived, see `legacy-android-native-attempt/` and
-`legacy-expo-attempt/`). Nothing is scaffolded yet for this attempt.
+`legacy-expo-attempt/`). A minimal scaffold now exists at the repo root, verified by
+actually building it, installing it on a running emulator, launching it, and
+screenshotting the result - see Claude/ANDROID ARCHITECTURE.md's "CURRENT STATE" for
+the real AGP 9.x migration issues hit and fixed along the way (the built-in-Kotlin
+plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
 
-1. Install/confirm Android Studio + JDK + Android SDK on the user's machine, then
-   scaffold a fresh Kotlin/Jetpack Compose/Media3/Room project at the repo root -
-   not guessed at blind; verify the toolchain actually works before writing source
-   that depends on it.
+1. ~~Install/confirm Android Studio + JDK + Android SDK, scaffold the project~~ -
+   done. Android Studio, the SDK, and a `Pixel_8` emulator are installed and
+   confirmed working; `./gradlew assembleDebug` succeeds and the app runs on the
+   emulator.
 2. Re-port the organization pipeline (scanner, tag reader, MusicBrainz/Gemini/
    AcoustID clients, scorer, filename/EDM-credit parsers, album grouper, SQLite/Room
    persistence, secure settings storage) into Kotlin from
@@ -67,9 +71,11 @@ SUPERSEDED - FROM THE FIRST NATIVE ANDROID ATTEMPT (also archived, at
 `legacy-android-native-attempt/`; the underlying issues are conceptually the same
 now that the project is native again):
 
-15. Install a JDK + Android SDK + Gradle, and generate the real Gradle wrapper -
-    this is exactly item 1 above, now actually happening for real instead of being
-    deferred a second time.
+15. ~~Install a JDK + Android SDK + Gradle, and generate the real Gradle wrapper~~ -
+    done for real this time (item 1 above): Android Studio's bundled JDK plus a
+    separately auto-provisioned JDK 17 (for Gradle's toolchain), the Android SDK,
+    and a real generated wrapper (`gradlew`/`gradle-wrapper.jar`), not deferred a
+    second time.
 16. ~~Recalibrate Scorer's thresholds~~ - resolved once already: the TypeScript
     port's test suite passed with the Python original's thresholds unchanged
     against a real fuzzy-matching library (`fuzzball`). Check whether an equivalent

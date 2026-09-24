@@ -23,15 +23,29 @@ The project has gone through two earlier forms before settling here:
 ## Status
 
 Back to native Android (Kotlin + Jetpack Compose + Media3/ExoPlayer + Room) - see
-`Claude/ANDROID ARCHITECTURE.md`. Nothing is scaffolded for this attempt yet; it
-starts once Android Studio + JDK + the Android SDK are installed and confirmed
-working. The organization pipeline (scanning, tag reading, MusicBrainz/Gemini
-grounding/AcoustID matching, scoring, persistence) needs re-porting from
+`Claude/ANDROID ARCHITECTURE.md`. A minimal scaffold exists and is verified for
+real: `./gradlew assembleDebug` builds, and the APK installs and runs on a real
+emulator (screenshotted to confirm). It's just a placeholder `MainActivity` so far -
+the organization pipeline (scanning, tag reading, MusicBrainz/Gemini
+grounding/AcoustID matching, scoring, persistence) still needs re-porting from
 `legacy-expo-attempt/src/organize/` into Kotlin, carrying forward the real bugs
 already found and fixed during the Expo attempt (see that folder's README and
 ANDROID ARCHITECTURE.md's "LESSONS TO CARRY FORWARD" section) rather than
 re-deriving them from scratch. The AcoustID key still needs replacing with an
 *application* key (see ANDROID ARCHITECTURE.md) regardless of stack.
+
+## Running it
+
+```
+./gradlew assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n com.mslynch.awesomesource/.MainActivity
+```
+
+Requires the Android SDK (`local.properties` -> `sdk.dir`, not committed) and a
+device/emulator connected via `adb devices`. See `Claude/ANDROID ARCHITECTURE.md`
+for the real AGP 9.x/Kotlin/KSP version-compatibility issues hit and fixed while
+setting this up.
 
 ## Tests
 

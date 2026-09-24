@@ -20,6 +20,17 @@ legacy-android-native-attempt/local.properties
 legacy-android-native-attempt/*.iml
 legacy-android-native-attempt/.idea/
 
+# Native Android (current stack) - local Gradle/Android Studio build state.
+# gradlew, gradlew.bat, and gradle/wrapper/* are intentionally NOT ignored -
+# that's the real generated wrapper, checked in for reproducible builds.
+/build/
+/app/build/
+.gradle/
+local.properties
+*.iml
+.idea/
+*.exe
+
 # Legacy Expo/React Native attempt (archived, superseded by native Android
 # Studio) - these patterns are unanchored so they also cover
 # legacy-expo-attempt/node_modules/, legacy-expo-attempt/.expo/, etc.
