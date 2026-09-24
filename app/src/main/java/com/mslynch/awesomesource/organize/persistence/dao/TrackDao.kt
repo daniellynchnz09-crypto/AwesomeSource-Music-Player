@@ -19,6 +19,9 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE path = :path")
     suspend fun getByPath(path: String): TrackEntity?
 
+    @Query("SELECT * FROM tracks WHERE path = :path")
+    fun observeByPath(path: String): Flow<TrackEntity?>
+
     @Query("SELECT * FROM tracks ORDER BY path")
     fun observeAll(): Flow<List<TrackEntity>>
 

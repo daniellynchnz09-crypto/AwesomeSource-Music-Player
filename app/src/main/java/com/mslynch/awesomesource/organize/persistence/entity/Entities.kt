@@ -5,6 +5,7 @@ import androidx.room.PrimaryKey
 import com.mslynch.awesomesource.organize.model.FileStatus
 import com.mslynch.awesomesource.organize.model.LibraryType
 import com.mslynch.awesomesource.organize.model.MetadataSource
+import com.mslynch.awesomesource.organize.model.ReviewStatus
 
 /**
  * One row per scanned file. `path` (library-root-relative, see LibraryPath) is the
@@ -35,7 +36,31 @@ data class TrackEntity(
     val source: MetadataSource,
     val status: FileStatus,
     val statusDetail: String,
+    /** Set whenever the pipeline found a confident match (MusicBrainz auto-apply or
+     * a Gemini-grounded confirmation), regardless of whether this track's own
+     * fields were already complete - see [reviewStatus]. */
+    val matchedReleaseId: String? = null,
+    /** The matched release's proposed values, held as a draft alongside the
+     * track's own (possibly incomplete) fields above - populated only when
+     * [reviewStatus] would be [ReviewStatus.MATCH_FOUND]. Never written into the
+     * fields above or the file itself until the user explicitly accepts it. */
+    val proposedArtist: String? = null,
+    val proposedAlbumArtist: String? = null,
+    val proposedAlbum: String? = null,
+    val proposedTitle: String? = null,
+    val proposedTrackNumber: Int? = null,
+    val proposedYear: Int? = null,
 )
+
+/** The four-way review classification the Library screen groups/filters by,
+ * recomputed fresh from this entity's own current fields every time rather than
+ * stored as its own column - see [ReviewStatus]'s doc comment for why: a manual
+ * edit (or accepting a draft) can never leave a stale status behind, because there
+ * is nowhere for a stale status to be stored. */
+fun TrackEntity.reviewStatus(): ReviewStatus {
+    val hasAllDetails = !artist.isNullOrBlank() && !album.isNullOrBlank() && !title.isNullOrBlank() && trackNumber != null
+    return ReviewStatus.compute(hasAllDetails, recognized = matchedReleaseId != null)
+}
 
 /** One row per (name, role) artist credit on a track - see ArtistCredit's doc
  * comment for why a collab/remix/VIP splits into several of these per track. */

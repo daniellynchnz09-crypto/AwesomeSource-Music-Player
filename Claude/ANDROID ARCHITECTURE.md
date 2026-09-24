@@ -189,6 +189,81 @@ into MusicBrainz querying, ending with a healthy mix of real `AUTO_MATCHED` and
 pipeline has been exercised against real, messy, ~2500-file library data rather than
 synthetic unit-test fixtures.
 
+REVIEW-STATUS MODEL: a four-way, user-facing classification for the Library
+screen's scan results, distinct from the pipeline's internal `FileStatus` -
+`ReviewStatus` (`organize/model/Enums.kt`): APPROVED (all core details - artist/
+album/title/track number - already present, and the system recognized the track;
+nothing to do), VERIFY (all details present, but the system couldn't confidently
+recognize it; left unmodified, flagged for a manual double-check), MATCH_FOUND (some
+details missing, but the system found a match; the matched metadata is held as a
+draft in `TrackEntity.proposed*` columns and is never written into the track's own
+fields or the file until the user explicitly accepts it), NO_MATCH_FOUND (some
+details missing and no match found; needs manual entry). Deliberately never
+persisted as its own column - `TrackEntity.reviewStatus()` recomputes it fresh from
+the entity's current field values (`hasAllDetails`) plus whether `matchedReleaseId`
+is set, every time it's read, so a manual edit or an accepted draft can never leave
+a stale status behind (there's nowhere for a stale value to live). "Recognized"
+means `FileStatus.AUTO_MATCHED` specifically, whether that came from MusicBrainz's
+own auto-apply threshold or a Gemini-grounded confirmation - both end up
+`AUTO_MATCHED`, so the same formula covers both without special-casing.
+
+Fixed a real, previously-dead computation while wiring this up: `QueryGroup.queryGroup()`'s
+auto-apply branch already called `ReleaseResolver.resolveGroupToProposed(...)` to
+build per-track proposed metadata, but discarded the result entirely - nothing was
+ever attached to a track, so no draft could ever have been shown even before this
+session's UI work. Fixed by adding `AlbumGroup.proposedByPath` and actually capturing
+it, plus a new `QueryGroup.resolveProposed()` so the Gemini-grounding branch in
+`OrganizeLibrary.processGroup()` (which picks a candidate *after* `queryGroup()` has
+already returned) gets the same treatment - previously a Gemini-confirmed match got
+a status change but no draft at all.
+
+Schema: `TrackEntity` gained `matchedReleaseId` and `proposedArtist`/
+`proposedAlbumArtist`/`proposedAlbum`/`proposedTitle`/`proposedTrackNumber`/
+`proposedYear` (all nullable). Room's version bumped 1 -> 2 with
+`fallbackToDestructiveMigration(true)` added to the builder - no real migration is
+written since this is pre-release, schema-unstable dev data with no users yet; a
+version mismatch just wipes and recreates, which is also how the user's "wipe the
+previous scan so I can start fresh" request for this same session was satisfied (the
+version bump alone triggered it on the next install).
+
+UI: `LibraryScreen` gained a stats bar (tap a tile to isolate the list to exactly
+that status - `MainViewModel.isolateStatusFilter`), a search box with a field-picker
+dropdown (search by title/artist/album/status or all of them -
+`MainViewModel.searchField`/`SearchField`), a multi-select filter-chip row for
+combining statuses (`MainViewModel.toggleStatusFilter` - e.g. unchecking Approved
+hides it), and a hand-rolled right-edge scrollbar (`TrackScrollbar`, sized/positioned
+from `LazyListState.layoutInfo` - Android Compose, unlike Compose for Desktop, has no
+built-in scrollbar component). The list defaults to `NO_MATCH_FOUND` only
+(`MainViewModel.statusFilter`'s initial value). Tapping a row opens a new
+`TrackDetailScreen` (shown as an in-place screen swap inside `LibraryScreen` via
+`MainViewModel.selectedTrackPath`, not a nav-graph route, since a real file path can
+contain characters that would need encoding to survive as a route argument) with
+editable fields for every manually-settable tag plus, for a MATCH_FOUND track, a
+"Proposed match" card showing the draft and an "Accept proposed match" button that
+copies the drafted fields into the real ones (`MainViewModel.acceptProposedMatch`).
+
+Verified for real end-to-end, not just compiled: wiped the database (new schema
+version), ran a full real organize pass against the user's ~2500-file library from
+the Setup screen, and confirmed on the resulting Library screen: the stats bar showed
+a real, non-trivial breakdown (505 Approved / 432 Verify / 25 Match Found / 406 No
+Match Found), the list defaulted to the No Match Found tracks, tapping the Approved
+tile correctly isolated to just those 505, the filter chips correctly multi-toggled,
+tapping a track opened a correctly-pre-filled detail screen, and - the one path
+actually worth stress-testing since it's a real database write, not just a filter -
+opening a MATCH_FOUND track ("Dissolve (Original Mix)" by Liquid Stranger, missing
+album artist/track number/year) and tapping "Accept proposed match" genuinely wrote
+the drafted album artist ("Liquid Stranger") and year ("2016") into the track's real
+fields and retitled it to the release's own clean title ("Dissolve") - confirmed by
+reopening the same track afterward and seeing the new values in the editable fields,
+not just the draft card. That track correctly stayed MATCH_FOUND rather than flipping
+to APPROVED, because the actual MusicBrainz release had no resolvable track-position
+match for it either, so the track number remained missing on both sides - the review-
+status formula treated a "draft that doesn't complete every field" correctly rather
+than naively marking anything accepted as fully approved. Screenshots in
+`Claude/Screenshots/`: `review_status_stats_and_default_filter.png`,
+`match_found_filter_isolated.png`, `proposed_match_draft_card.png`,
+`proposed_match_accepted.png`, `track_detail_edit_screen.png`.
+
 LESSONS TO CARRY FORWARD FROM THE EXPO ATTEMPT (found and verified for real during
 that pass - see `legacy-expo-attempt/README.md` for the source files; re-verify
 each since time may have passed, but don't reintroduce bugs already found once):

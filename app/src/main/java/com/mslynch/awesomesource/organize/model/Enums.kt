@@ -47,3 +47,47 @@ enum class LibraryType {
     EDM,
     OTHER,
 }
+
+/**
+ * The four-way, user-facing review classification requested for the scan results
+ * list - distinct from [FileStatus], which is the pipeline's own internal
+ * processing state. Deliberately never persisted as its own column (see
+ * `TrackEntity.reviewStatus()`) - it's always recomputed from a track's current
+ * field values plus whether a match was ever found, so there is exactly one source
+ * of truth and a manual edit can never leave a stale status behind.
+ */
+enum class ReviewStatus {
+    /** All core details (artist/album/title/track number) were already present,
+     * and the system (MusicBrainz, optionally Gemini-confirmed) recognized the
+     * track - nothing to do. */
+    APPROVED,
+    /** All core details were already present, but the system could not confidently
+     * recognize the track - left unmodified, flagged for the user to double-check. */
+    VERIFY,
+    /** Some core details were missing, but the system found a match - the matched
+     * metadata is held as a proposed draft (see `TrackEntity.proposed*` fields) and
+     * is not written into the track's own fields or the file until the user
+     * accepts it. */
+    MATCH_FOUND,
+    /** Some core details were missing and the system found no match - left
+     * unmodified, needs manual entry. */
+    NO_MATCH_FOUND;
+
+    companion object {
+        /** The single formula every persist path uses, so "approved"/"verify"/
+         * "match found"/"no match found" always mean the same thing regardless of
+         * which pipeline stage or manual edit produced the current field values. */
+        fun compute(hasAllDetails: Boolean, recognized: Boolean): ReviewStatus = when {
+            hasAllDetails && recognized -> APPROVED
+            hasAllDetails && !recognized -> VERIFY
+            !hasAllDetails && recognized -> MATCH_FOUND
+            else -> NO_MATCH_FOUND
+        }
+    }
+}
+
+/** A track counts as having "all details" only with artist, album, title, AND a
+ * track number all present - missing any one of these means real lookup/entry work
+ * still has to happen, per the four-way model [ReviewStatus] implements. */
+fun TrackMetadata.hasAllDetails(): Boolean =
+    !artist.isNullOrBlank() && !album.isNullOrBlank() && !title.isNullOrBlank() && trackNumber != null

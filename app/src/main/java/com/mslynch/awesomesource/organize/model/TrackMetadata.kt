@@ -85,4 +85,11 @@ data class AlbumGroup(
     val statusDetail: String = "",
     val candidates: List<MbCandidate> = emptyList(),
     val chosenReleaseId: String? = null,
+    /** File path -> proposed metadata from [ReleaseResolver.resolveGroupToProposed],
+     * keyed by [TrackMetadata.path]'s string value. Populated whenever a match is
+     * actually resolved (auto-apply or Gemini-grounded) so the per-track draft data
+     * a [ReviewStatus.MATCH_FOUND] track needs to display is available to whoever
+     * persists the result - previously this resolution ran but its result was
+     * discarded, so no drafted proposal was ever actually kept anywhere. */
+    val proposedByPath: Map<String, TrackMetadata> = emptyMap(),
 )

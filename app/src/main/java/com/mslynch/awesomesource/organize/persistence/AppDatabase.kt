@@ -37,7 +37,12 @@ import com.mslynch.awesomesource.organize.persistence.entity.TrackEntity
         MbQueryCacheEntity::class,
         GeminiGroundingCacheEntity::class,
     ],
-    version = 1,
+    // Bumped from 1: TrackEntity gained matchedReleaseId/proposed* columns for the
+    // review-status feature. No migration is written since this is pre-release,
+    // schema-unstable dev data with no real users yet - fallbackToDestructiveMigration
+    // below just wipes and recreates on a version mismatch, consistent with how
+    // every schema change has been handled so far in this project.
+    version = 2,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -58,7 +63,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "awesomesource.db",
-                ).build().also { instance = it }
+                ).fallbackToDestructiveMigration(true).build().also { instance = it }
             }
     }
 }

@@ -10,7 +10,9 @@ import com.mslynch.awesomesource.organize.model.AlbumGroup
 import com.mslynch.awesomesource.organize.model.FileStatus
 import com.mslynch.awesomesource.organize.model.LibraryType
 import com.mslynch.awesomesource.organize.model.MetadataSource
+import com.mslynch.awesomesource.organize.model.ReviewStatus
 import com.mslynch.awesomesource.organize.model.TrackMetadata
+import com.mslynch.awesomesource.organize.model.hasAllDetails
 import com.mslynch.awesomesource.organize.persistence.AppDatabase
 import com.mslynch.awesomesource.organize.persistence.entity.ScanSessionEntity
 import com.mslynch.awesomesource.organize.persistence.entity.TrackArtistCreditEntity
@@ -180,25 +182,53 @@ class OrganizeLibrary(private val context: Context) {
                 resolved.candidates,
             )
             if (verdict?.confident == true && verdict.chosen != null) {
+                // Same resolution step queryGroup() runs internally for its own
+                // auto-apply path - needed here too so a Gemini-confirmed match
+                // gets a proposed draft, not just a status change.
+                val proposed = queryGroup.resolveProposed(resolved, verdict.chosen)
                 resolved = resolved.copy(
                     status = FileStatus.AUTO_MATCHED,
                     chosenReleaseId = verdict.chosen.releaseId,
                     statusDetail = "Gemini-grounded: ${verdict.reasoning}",
+                    proposedByPath = proposed,
                 )
             }
         }
 
+        // "Recognized" for the review-status model means the same thing regardless
+        // of whether MusicBrainz alone or a Gemini-grounded confirmation produced
+        // it - both end up AUTO_MATCHED. Everything else (NEEDS_REVIEW that Gemini
+        // couldn't resolve either, NO_MATCH, LOOKUP_FAILED, INSUFFICIENT_INFO) is
+        // "not recognized" for this purpose - the pipeline doesn't have a confident
+        // answer, whatever the specific internal reason.
+        val recognized = resolved.status == FileStatus.AUTO_MATCHED
         for (track in resolved.files) {
             val withStatus = track.copy(
                 status = resolved.status,
                 statusDetail = resolved.statusDetail.ifEmpty { track.statusDetail },
-                source = if (resolved.status == FileStatus.AUTO_MATCHED) MetadataSource.ONLINE_LOOKUP else track.source,
+                source = if (recognized) MetadataSource.ONLINE_LOOKUP else track.source,
             )
-            persistTrack(withStatus)
+            val reviewStatus = ReviewStatus.compute(withStatus.hasAllDetails(), recognized)
+            // A draft is only meaningful for MATCH_FOUND - APPROVED already has
+            // complete, confirmed details with nothing to propose, and VERIFY/
+            // NO_MATCH_FOUND never got a confident match to draft from at all.
+            val proposed = if (reviewStatus == ReviewStatus.MATCH_FOUND) resolved.proposedByPath[track.path.value] else null
+            persistTrack(withStatus, reviewStatus, proposed, matchedReleaseId = resolved.chosenReleaseId.takeIf { recognized })
         }
     }
 
-    private suspend fun persistTrack(track: TrackMetadata) {
+    /** `reviewStatus`/`proposed`/`matchedReleaseId` are omitted for the initial
+     * tag-reading-phase persist (before any group has been queried yet) - at that
+     * point nothing has been matched, so [ReviewStatus.compute] with
+     * `recognized = false` is the only correct answer, and it will be overwritten
+     * (upsert on conflict REPLACE) once [processGroup] actually resolves this
+     * track's group. */
+    private suspend fun persistTrack(
+        track: TrackMetadata,
+        reviewStatus: ReviewStatus? = null,
+        proposed: TrackMetadata? = null,
+        matchedReleaseId: String? = null,
+    ) {
         db.trackDao().upsert(
             TrackEntity(
                 path = track.path.value,
@@ -223,6 +253,13 @@ class OrganizeLibrary(private val context: Context) {
                 source = track.source,
                 status = track.status,
                 statusDetail = track.statusDetail,
+                matchedReleaseId = matchedReleaseId,
+                proposedArtist = proposed?.artist,
+                proposedAlbumArtist = proposed?.albumArtist,
+                proposedAlbum = proposed?.album,
+                proposedTitle = proposed?.title,
+                proposedTrackNumber = proposed?.trackNumber,
+                proposedYear = proposed?.year,
             )
         )
 

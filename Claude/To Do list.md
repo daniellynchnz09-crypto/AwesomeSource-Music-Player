@@ -62,6 +62,21 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
    Android's on-device ART regex engine rejects (`PatternSyntaxException`) even
    though desktop-JVM unit tests never caught it. Fixed and reverified with a full
    successful run (real `AUTO_MATCHED`/`NEEDS_REVIEW` results, zero crashes).
+8b. ~~The Library screen's review-status system (Approved/Verify/Match Found/No
+    Match Found), stats bar, search+filter, scrollbar, and tap-to-edit detail
+    screen~~ - done: see ANDROID ARCHITECTURE.md's "REVIEW-STATUS MODEL" section for
+    the full design and a real bug it fixed along the way (`QueryGroup`'s resolved
+    match proposal was being computed and silently discarded before this - no draft
+    could ever have reached a track). Verified end-to-end against a real ~2500-file
+    organize run: stats (505/432/25/406), stat-tile isolation, filter-chip
+    multi-toggle, and - most importantly - a real database write via "Accept
+    proposed match" that correctly filled in missing fields from the draft while
+    correctly leaving the status as Match Found rather than false-flagging it
+    Approved when the draft itself was still incomplete (missing track number).
+    Manual free-text editing of any field is also wired up (`MainViewModel.updateTrackDetails`)
+    but its own write path wasn't separately re-verified this pass, since it shares
+    the exact same `upsert`-then-recompute code path already proven by the accept
+    action.
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
    needs to be built once playback (Media3/ExoPlayer) is wired up.
 10. The design pass (Neo-Aero/Dark-Aero/skeuomorphic per Claude/App DESIGN.md) is

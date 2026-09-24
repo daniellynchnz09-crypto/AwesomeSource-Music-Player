@@ -42,8 +42,15 @@ The user's real ~2500-file music library was pushed to the emulator's SD card an
 organized end-to-end through the UI - this surfaced (and led to fixing) a real
 on-device-only crash in `FilenameParser.kt` (an unescaped regex brace that Android's
 ART regex engine rejects but desktop-JVM unit tests never caught); see
-ANDROID ARCHITECTURE.md's "REAL ORGANIZE RUN" section. The AcoustID key still needs
-replacing with an *application* key (see ANDROID ARCHITECTURE.md) regardless of stack.
+ANDROID ARCHITECTURE.md's "REAL ORGANIZE RUN" section. The Library screen now
+classifies every scanned track into one of four review statuses (Approved/Verify/
+Match Found/No Match Found), with a tap-to-isolate stats bar, search-by-field,
+multi-select status filter chips, a scrollbar, and a tap-to-edit detail screen that
+can also accept a drafted match without ever touching the file itself - verified
+end-to-end against the same real library, including a real database write via
+"Accept proposed match" (see ANDROID ARCHITECTURE.md's "REVIEW-STATUS MODEL"
+section). The AcoustID key still needs replacing with an *application* key (see
+ANDROID ARCHITECTURE.md) regardless of stack.
 
 ## Running it
 

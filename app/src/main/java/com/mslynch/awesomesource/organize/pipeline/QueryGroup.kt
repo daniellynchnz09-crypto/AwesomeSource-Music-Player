@@ -129,8 +129,8 @@ class QueryGroup(
 
         if (decision.outcome == Scorer.Outcome.AUTO_APPLY && decision.chosen != null) {
             return try {
-                ReleaseResolver.resolveGroupToProposed(mbClient, coverArtClient, withCandidates, decision.chosen, fetchCoverArt = false)
-                withCandidates.copy(status = FileStatus.AUTO_MATCHED, chosenReleaseId = decision.chosen.releaseId)
+                val proposed = ReleaseResolver.resolveGroupToProposed(mbClient, coverArtClient, withCandidates, decision.chosen, fetchCoverArt = false)
+                withCandidates.copy(status = FileStatus.AUTO_MATCHED, chosenReleaseId = decision.chosen.releaseId, proposedByPath = proposed)
             } catch (e: Exception) {
                 // Matched with high confidence but couldn't fetch the full release
                 // details to build a proposal - surface as needs_review so the
@@ -143,6 +143,19 @@ class QueryGroup(
             else -> withCandidates.copy(status = FileStatus.NO_MATCH)
         }
     }
+
+    /** Resolves an already-chosen candidate into per-track proposed metadata,
+     * reusing this instance's own [mbClient]/[coverArtClient] - used by the Gemini
+     * grounding pass in `OrganizeLibrary`, which picks a candidate *after*
+     * [queryGroup] has already returned, so it needs the same resolution step
+     * [queryGroup] runs internally for its own auto-apply path. Never throws -
+     * a details-fetch failure just means no draft is available, not a crash. */
+    suspend fun resolveProposed(group: AlbumGroup, chosen: MbCandidate): Map<String, com.mslynch.awesomesource.organize.model.TrackMetadata> =
+        try {
+            ReleaseResolver.resolveGroupToProposed(mbClient, coverArtClient, group, chosen, fetchCoverArt = false)
+        } catch (e: Exception) {
+            emptyMap()
+        }
 
     /** Returns ranked candidates, or null if there's no usable artist/title to
      * search with at all. A group with exactly one file is queried by track title

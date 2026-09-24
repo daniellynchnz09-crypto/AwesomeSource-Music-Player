@@ -8,6 +8,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mslynch.awesomesource.organize.model.MetadataSource
+import com.mslynch.awesomesource.organize.model.ReviewStatus
 import com.mslynch.awesomesource.organize.persistence.AppDatabase
 import com.mslynch.awesomesource.organize.persistence.entity.TrackEntity
 import com.mslynch.awesomesource.organize.pipeline.OrganizeLibrary
@@ -16,6 +18,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** Which field(s) the Library screen's search box matches against - the "search by
+ * name, artist, album, match status" the user asked for, picked via a dropdown next
+ * to the search field rather than one box per field. */
+enum class SearchField { ALL, TITLE, ARTIST, ALBUM, STATUS }
 
 /**
  * Backs the Setup/Library/Settings screens - the Kotlin/Compose equivalent of the
@@ -28,6 +35,11 @@ import kotlinx.coroutines.withContext
  * itself dispatched off the caller's thread - running it directly on
  * `viewModelScope`'s default (Main) dispatcher would freeze the UI for the whole
  * scan phase on a large library.
+ *
+ * Search/filter/sort state lives here as plain Compose state rather than combined
+ * into a `Flow`, since [tracks] itself stays the single raw source of truth (used
+ * for both the filtered list AND the always-whole-library stats bar) - deriving the
+ * filtered view is cheap enough to do directly in `LibraryScreen` with `remember`.
  */
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -47,6 +59,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     val tracks: Flow<List<TrackEntity>> = db.trackDao().observeAll()
+
+    var searchQuery by mutableStateOf("")
+        private set
+
+    var searchField by mutableStateOf(SearchField.ALL)
+        private set
+
+    /** Defaults to just NO_MATCH_FOUND per the requested behavior - tracks that got
+     * no match at all are the ones most likely to need the user's attention first. */
+    var statusFilter by mutableStateOf(setOf(ReviewStatus.NO_MATCH_FOUND))
+        private set
+
+    /** Non-null while the track-detail/manual-edit screen is showing, per its path
+     * (the primary key) - kept as plain screen state here rather than a nav route
+     * argument, since a real file path can contain characters that would need
+     * encoding to survive as a route segment. */
+    var selectedTrackPath by mutableStateOf<String?>(null)
+        private set
 
     var geminiApiKey by mutableStateOf(settings.geminiApiKey ?: "")
         private set
@@ -93,6 +123,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 progress = null
                 refreshTrackCount()
             }
+        }
+    }
+
+    fun updateSearchQuery(value: String) {
+        searchQuery = value
+    }
+
+    fun updateSearchField(field: SearchField) {
+        searchField = field
+    }
+
+    /** Chip-row toggle - lets any combination of statuses be shown/hidden, e.g.
+     * unchecking Approved to filter it out. */
+    fun toggleStatusFilter(status: ReviewStatus) {
+        statusFilter = if (status in statusFilter) statusFilter - status else statusFilter + status
+    }
+
+    /** Tapping a stats tile "hides the other entries and only shows the entries
+     * that have that status" - a single-status select, distinct from the
+     * multi-select chip toggle above. */
+    fun isolateStatusFilter(status: ReviewStatus) {
+        statusFilter = setOf(status)
+    }
+
+    fun selectTrack(path: String?) {
+        selectedTrackPath = path
+    }
+
+    fun observeTrack(path: String): Flow<TrackEntity?> = db.trackDao().observeByPath(path)
+
+    /** A manual edit always sets `source = MANUAL_ENTRY`; [ReviewStatus] is never
+     * stored, so it's automatically recomputed correctly the next time anything
+     * reads this row - no separate "recompute status" step needed. */
+    fun updateTrackDetails(
+        path: String,
+        artist: String?,
+        albumArtist: String?,
+        album: String?,
+        title: String?,
+        trackNumber: Int?,
+        year: Int?,
+        genre: String?,
+        composer: String?,
+    ) {
+        viewModelScope.launch {
+            val existing = db.trackDao().getByPath(path) ?: return@launch
+            db.trackDao().upsert(
+                existing.copy(
+                    artist = artist?.ifBlank { null },
+                    albumArtist = albumArtist?.ifBlank { null },
+                    album = album?.ifBlank { null },
+                    title = title?.ifBlank { null },
+                    trackNumber = trackNumber,
+                    year = year,
+                    genre = genre?.ifBlank { null },
+                    composer = composer?.ifBlank { null },
+                    source = MetadataSource.MANUAL_ENTRY,
+                )
+            )
+        }
+    }
+
+    /** Copies a MATCH_FOUND track's drafted `proposed*` fields into its real fields -
+     * the "accept this draft" action a match-found row's own field values were
+     * always meant to feed, without ever touching the file itself (still nothing in
+     * this pipeline writes tags back to files - see Claude/To Do list.md). */
+    fun acceptProposedMatch(path: String) {
+        viewModelScope.launch {
+            val existing = db.trackDao().getByPath(path) ?: return@launch
+            db.trackDao().upsert(
+                existing.copy(
+                    artist = existing.proposedArtist ?: existing.artist,
+                    albumArtist = existing.proposedAlbumArtist ?: existing.albumArtist,
+                    album = existing.proposedAlbum ?: existing.album,
+                    title = existing.proposedTitle ?: existing.title,
+                    trackNumber = existing.proposedTrackNumber ?: existing.trackNumber,
+                    year = existing.proposedYear ?: existing.year,
+                    source = MetadataSource.ONLINE_LOOKUP,
+                )
+            )
         }
     }
 
