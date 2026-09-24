@@ -153,9 +153,41 @@ succeeds, all 58 pipeline unit tests still pass unaffected, and the Setup and
 Settings screens were screenshotted on the emulator (`Claude/Screenshots/`) showing
 the centered "Setup" header, the gear icon, "Let's add to your library" above the
 button, and real navigation to a working Settings screen with all three fields.
-Not yet wired: the Library screen's own screenshot (needs a real organize run against
-actual files, not exercised here), and nothing writes corrected tags back to files
-(see OPEN SPIKES item 5 below - unchanged by this pass).
+Not yet wired: nothing writes corrected tags back to files (see OPEN SPIKES item 5
+below - unchanged by this pass).
+
+REAL ORGANIZE RUN AGAINST THE USER'S ACTUAL LIBRARY: the user's ~21GB/2547-file
+`Music/` folder was pushed to the emulator's SD card (resized from 512MB to 32GB via
+`mksdcard` - the default was nowhere near big enough) and scanned for real through
+the UI, and it crashed partway through with `FATAL EXCEPTION: main` in
+`OrganizeLibrary.resolveInitialMetadata`, caused by
+`java.util.regex.PatternSyntaxException` at `FilenameParser.<clinit>` (a static
+initializer failure - the whole class fails to load the moment any code touches it).
+Root cause: one of `NOISE_PATTERNS`' regexes, `\{[^}]*}`, had an unescaped trailing
+`}`. Desktop JVM's regex engine (which is what all 58 unit tests run against, whether
+plain or under Robolectric) silently accepts a bare `}` as a literal character, but
+Android's on-device ART/ICU-backed `Pattern` implementation is stricter and throws
+`PatternSyntaxException` for it - both braces need escaping consistently, not just
+the opening one. This is the same *category* of bug as the `Uri.EMPTY`-is-null
+finding: something that passed every unit test because unit tests never exercise
+ART's real regex engine, only a desktop JVM stand-in. Fixed by escaping it
+(`\{[^}]*\}`); double-checked every other `Regex(...)` call site across the whole
+`organize/` package for the same pattern (only one other brace usage exists,
+`MusicBrainzClient.kt`'s Lucene-escaping character class `[+\-!(){}\[\]^"~*?:\\/]` -
+braces inside a character class are always literal in every regex engine, so that
+one was never at risk). Verified for real, not just recompiled: rebuilt, reran all
+58 tests (still pass, since the desktop JVM engine never caught this), reinstalled,
+and walked through the actual `ACTION_OPEN_DOCUMENT_TREE` picker via `adb shell input
+tap`/`uiautomator dump` (to get exact button bounds rather than guessing pixel
+coordinates from screenshots) to grant access to the real SD-card folder, then
+watched the full run complete past the crash point, through tag-reading (including a
+real untagged file hitting the previously-crashing `FilenameParser` code path
+successfully - screenshotted as `Claude/Screenshots/filenameparser_crash_fix_verification.png`),
+into MusicBrainz querying, ending with a healthy mix of real `AUTO_MATCHED` and
+`NEEDS_REVIEW` results and zero further crashes
+(`Claude/Screenshots/real_organize_run_completed.png`). This is the first time the
+pipeline has been exercised against real, messy, ~2500-file library data rather than
+synthetic unit-test fixtures.
 
 LESSONS TO CARRY FORWARD FROM THE EXPO ATTEMPT (found and verified for real during
 that pass - see `legacy-expo-attempt/README.md` for the source files; re-verify

@@ -53,10 +53,15 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
    `OrganizeLibrary` run, the Room track list, and the three `SecureSettings`
    fields - see ANDROID ARCHITECTURE.md's "UI" section for the full design and the
    real bug found (wrapping `organize()` in `Dispatchers.IO` so the synchronous
-   `Scanner.scanFolder()` walk doesn't freeze the UI thread). Verified on the
-   emulator (screenshots in `Claude/Screenshots/`) for the empty-library Setup and
-   Settings states; a real end-to-end organize run against actual audio files, and
-   the Library screen's own track-list view, are still unexercised.
+   `Scanner.scanFolder()` walk doesn't freeze the UI thread). ~~A real end-to-end
+   organize run against actual audio files is still unexercised~~ - done: the
+   user's real ~2547-file library was pushed to the emulator's SD card and
+   organized end-to-end through the UI, which surfaced and led to fixing a real
+   crash (see ANDROID ARCHITECTURE.md's "REAL ORGANIZE RUN" section) -
+   `FilenameParser.kt`'s `\{[^}]*}` regex had an unescaped trailing brace that
+   Android's on-device ART regex engine rejects (`PatternSyntaxException`) even
+   though desktop-JVM unit tests never caught it. Fixed and reverified with a full
+   successful run (real `AUTO_MATCHED`/`NEEDS_REVIEW` results, zero crashes).
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
    needs to be built once playback (Media3/ExoPlayer) is wired up.
 10. The design pass (Neo-Aero/Dark-Aero/skeuomorphic per Claude/App DESIGN.md) is

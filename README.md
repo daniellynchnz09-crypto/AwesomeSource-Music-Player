@@ -37,11 +37,13 @@ gaps from every prior attempt got real progress as a side effect of picking bett
 libraries this time: tag reading now also supports *writing* (`net.jthink:jaudiotagger`,
 not wired into the pipeline yet), and fuzzy matching uses a real published library
 (`me.xdrop:fuzzywuzzy`) instead of a from-scratch reimplementation. A Compose
-Setup/Library/Settings UI now wires up the pipeline (`app/src/main/java/com/mslynch/awesomesource/ui/`),
-verified on the emulator for the empty-library Setup and Settings states
-(screenshots in `Claude/Screenshots/`) - a real end-to-end organize run against
-actual audio files hasn't been exercised yet. The AcoustID key still needs replacing
-with an *application* key (see ANDROID ARCHITECTURE.md) regardless of stack.
+Setup/Library/Settings UI now wires up the pipeline (`app/src/main/java/com/mslynch/awesomesource/ui/`).
+The user's real ~2500-file music library was pushed to the emulator's SD card and
+organized end-to-end through the UI - this surfaced (and led to fixing) a real
+on-device-only crash in `FilenameParser.kt` (an unescaped regex brace that Android's
+ART regex engine rejects but desktop-JVM unit tests never caught); see
+ANDROID ARCHITECTURE.md's "REAL ORGANIZE RUN" section. The AcoustID key still needs
+replacing with an *application* key (see ANDROID ARCHITECTURE.md) regardless of stack.
 
 ## Running it
 

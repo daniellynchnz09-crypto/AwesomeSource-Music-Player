@@ -19,7 +19,14 @@ object FilenameParser {
         // Newgrounds Audio Portal rips tack the submission's numeric ID onto the
         // TITLE tag itself, e.g. "Dr. Finkelfracken's Cure (ID: 383158)".
         Regex("""\(id:\s*\d+\)""", RegexOption.IGNORE_CASE),
-        Regex("""\{[^}]*}"""), // {tag}-style bracket noise
+        // A bare, unescaped trailing `}` compiles fine under desktop JVM's regex
+        // engine (which is how the unit tests run) but throws PatternSyntaxException
+        // under Android's ART/ICU-backed Pattern implementation, which is stricter
+        // about literal braces - both `{` and `}` need escaping, not just the
+        // opening one. This crashed the app for real on-device/emulator despite all
+        // unit tests passing, since Robolectric/plain-JVM tests never exercise ART's
+        // regex engine.
+        Regex("""\{[^}]*\}"""), // {tag}-style bracket noise
         Regex("""\((?:remaster(?:ed)?|deluxe|explicit|clean|hq|official)[^)]*\)""", RegexOption.IGNORE_CASE),
         Regex("""\((?:free|original\s+mix)\)""", RegexOption.IGNORE_CASE),
         Regex("""\b\d{2,4}\s?kbps\b""", RegexOption.IGNORE_CASE),
