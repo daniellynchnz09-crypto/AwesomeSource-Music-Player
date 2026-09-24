@@ -73,6 +73,58 @@ AGP 9.4.1:
   own `gradle wrapper --gradle-version 9.7.1` task, rather than hand-written - this
   produces an authentic, checksummed wrapper rather than one guessed at.
 
+ORGANIZATION PIPELINE: fully re-ported into Kotlin at
+`app/src/main/java/com/mslynch/awesomesource/organize/` - scanner (SAF/
+`DocumentFile`-based recursive walk), tag reader, MusicBrainz/Cover Art Archive/
+Gemini/AcoustID network clients (Retrofit + Moshi), fuzzy-match scorer, filename/
+EDM-credit parsers, album grouper, Room persistence (tracks, artist credits,
+libraries, sidecar metadata, undo log, query caches), encrypted settings storage,
+and the full `OrganizeLibrary` orchestrator (scan -> read tags/sidecar/filename-guess
+-> group -> query MusicBrainz -> score -> Gemini-ground ambiguous results ->
+persist). Verified for real: `./gradlew assembleDebug` succeeds, all 58 ported unit
+tests pass (`ScorerTest` 22, `FilenameParserTest` 19, `EdmCreditParserTest` 7,
+`AlbumGrouperTest` 10), and the resulting APK installs and runs on the emulator
+without crashing. Two real, previously-open gaps got closed as a side effect of
+picking better libraries this pass, not by design:
+- Tag *reading* uses `net.jthink:jaudiotagger` (the actively-maintained fork, not
+  the stale `org.jaudiotagger` original), which reads genre, composer, disc number,
+  and track-total - fields the Expo attempt's `@missingcore/audio-metadata`
+  couldn't. It also supports *writing* tags, which nothing prior did - not wired
+  into the pipeline yet (see Claude/To Do list.md item 5), but the "no verified
+  write-capable library" blocker itself is resolved.
+- Fuzzy matching uses `me.xdrop:fuzzywuzzy`, a real published Java port (found via
+  a Maven Central search, not assumed) - the first native attempt's from-scratch
+  `FuzzyMatch.kt` reimplementation and its "recalibrate thresholds" caveat are both
+  gone; the Python original's unmodified thresholds pass all 22 `ScorerTest` cases,
+  including exact numeric assertions.
+
+Three real, non-obvious bugs were hit and fixed while actually compiling and
+running this port (each is the kind of thing "looks right, was never run" would
+have shipped silently - the exact trap the first native attempt fell into):
+1. A KDoc comment containing the literal text `ws/2/*?fmt=json` broke the Kotlin
+   parser - Kotlin block comments nest, so the `/*` inside that URL fragment opened
+   a second nested comment that was never closed, corrupting the rest of the file
+   (and cascading into dozens of confusing "unresolved reference" errors in files
+   that `import` from it). Fixed by rewording the comment to avoid a literal `/*`
+   sequence.
+2. `MusicBrainzClient`'s `resolvedArtist` (a mutable `var`, reassigned inside
+   `querySingleton` as better artist guesses are found) couldn't be smart-cast to
+   non-null `String` inside a lambda passed to `cachedOrSearch` - Kotlin disallows
+   smart-casting a `var` that's captured in a closure, since the closure could
+   (in principle) run after a later reassignment. Fixed with an explicit `!!` at
+   the capture site, matching how the adjacent `title` variable already handled the
+   same situation.
+3. `Uri.EMPTY` (used to build a placeholder `TrackMetadata` in `AlbumGrouperTest`)
+   is actually `null` under the Android stub jar plain JVM unit tests run against -
+   `testOptions.unitTests.isReturnDefaultValues = true` makes stubbed *methods*
+   return safe defaults instead of throwing "not mocked", but `Uri.EMPTY` is a
+   *field*, and the stub jar's value for it is null, so it does not get the same
+   treatment. This was a wrong assumption carried over unverified from the first
+   native attempt's doc comments (that codebase was never compiled, so it was never
+   caught) - fixed for real by adding Robolectric and running `AlbumGrouperTest`
+   under `@RunWith(RobolectricTestRunner::class)`, which provides a genuine working
+   `Uri` implementation instead of a null stub.
+
 LESSONS TO CARRY FORWARD FROM THE EXPO ATTEMPT (found and verified for real during
 that pass - see `legacy-expo-attempt/README.md` for the source files; re-verify
 each since time may have passed, but don't reintroduce bugs already found once):
@@ -123,14 +175,16 @@ OPEN SPIKES (tracked in more detail in Claude/To Do list.md):
 3. The user's AcoustID key needs replacing with an *application* API key from
    https://acoustid.org/new-applications - the one provided returned "invalid API
    key" against the real lookup endpoint.
-4. Re-port the organization pipeline (scanner, tag reader, MusicBrainz/Gemini/
-   AcoustID clients, scorer, filename/EDM-credit parsers, album grouper, SQLite/Room
-   persistence) from `legacy-expo-attempt/src/organize/` into Kotlin, carrying
-   forward the verified fixes listed above rather than re-deriving them from the
-   original Python source alone.
-5. Writing corrected tags back into files' embedded metadata - no verified
-   write-capable library was found during either prior attempt. Needs real
-   research once this becomes the active blocker, not guessed at.
+4. ~~Re-port the organization pipeline into Kotlin~~ - done, see the "ORGANIZATION
+   PIPELINE" section above. Nothing calls it from a UI yet, though - that's the
+   next real gap (item 6 below).
+5. Writing corrected tags back into files' embedded metadata - `AudioTagReader.kt`'s
+   `jaudiotagger` dependency actually supports writing now (unlike every prior
+   attempt's read-only libraries), so the "no verified write-capable library" part
+   of this blocker is resolved - the write path itself just isn't wired into the
+   pipeline yet.
+6. No screen calls `OrganizeLibrary.kt` yet - the Compose equivalent of the Expo
+   attempt's Setup/Library/Settings screens hasn't been built.
 
 CHROMAPRINT FINGERPRINT GENERATION: researched during the Expo attempt, not
 implemented in either attempt so far. Findings: no existing React Native/Expo

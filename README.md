@@ -23,16 +23,23 @@ The project has gone through two earlier forms before settling here:
 ## Status
 
 Back to native Android (Kotlin + Jetpack Compose + Media3/ExoPlayer + Room) - see
-`Claude/ANDROID ARCHITECTURE.md`. A minimal scaffold exists and is verified for
-real: `./gradlew assembleDebug` builds, and the APK installs and runs on a real
-emulator (screenshotted to confirm). It's just a placeholder `MainActivity` so far -
-the organization pipeline (scanning, tag reading, MusicBrainz/Gemini
-grounding/AcoustID matching, scoring, persistence) still needs re-porting from
-`legacy-expo-attempt/src/organize/` into Kotlin, carrying forward the real bugs
-already found and fixed during the Expo attempt (see that folder's README and
-ANDROID ARCHITECTURE.md's "LESSONS TO CARRY FORWARD" section) rather than
-re-deriving them from scratch. The AcoustID key still needs replacing with an
-*application* key (see ANDROID ARCHITECTURE.md) regardless of stack.
+`Claude/ANDROID ARCHITECTURE.md`. The organization pipeline (scanning, tag reading,
+MusicBrainz/Gemini grounding/AcoustID matching, scoring, persistence) is fully
+re-ported into Kotlin at `app/src/main/java/com/mslynch/awesomesource/organize/`
+and verified for real: `./gradlew assembleDebug` builds, all 58 ported unit tests
+pass, and the APK installs and runs on a real emulator (screenshotted to confirm).
+Real fixes carried forward from the Expo attempt (Gemini model name, AcoustID
+`format=json`, verified MusicBrainz shapes) plus new ones found while actually
+compiling this port for the first time (see ANDROID ARCHITECTURE.md) - a Kotlin
+nested-block-comment parse bug, a smart-cast/closure-capture error, and a
+`Uri.EMPTY`-is-null-under-plain-JVM-tests gap fixed with Robolectric. Two open
+gaps from every prior attempt got real progress as a side effect of picking better
+libraries this time: tag reading now also supports *writing* (`net.jthink:jaudiotagger`,
+not wired into the pipeline yet), and fuzzy matching uses a real published library
+(`me.xdrop:fuzzywuzzy`) instead of a from-scratch reimplementation. Nothing calls
+the pipeline from a UI yet - only a placeholder `MainActivity` exists. The AcoustID
+key still needs replacing with an *application* key (see ANDROID ARCHITECTURE.md)
+regardless of stack.
 
 ## Running it
 
@@ -49,10 +56,14 @@ setting this up.
 
 ## Tests
 
-The retired attempts each have their own test suites, preserved for reference:
+`./gradlew testDebugUnitTest` runs the current, real test suite - 58 tests
+(Scorer 22, FilenameParser 19, EdmCreditParser 7, AlbumGrouper 10), all passing.
+`AlbumGrouperTest` runs under Robolectric (needed for a working `Uri` in plain JVM
+tests - see ANDROID ARCHITECTURE.md).
+
+The retired attempts' own test suites are preserved for reference only:
 - `legacy-expo-attempt/`: `npx jest` (from inside that folder, after `npm install`)
-  runs the ported Scorer/FilenameParser/AlbumGrouper/EdmCreditParser suites - 58
-  tests, all passing as of that attempt.
+  - the same 58 cases, passing against `fuzzball` instead of `fuzzywuzzy`.
 - `legacy-android-native-attempt/`: JUnit ports of the same suites (never
   build-verified in that attempt, since no JDK/Android SDK was available in that
   session).

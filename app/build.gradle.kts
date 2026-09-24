@@ -37,6 +37,19 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        unitTests {
+            // Plain JVM unit tests (Scorer/FilenameParser/AlbumGrouper/
+            // EdmCreditParser tests) construct TrackMetadata, whose `uri: Uri`
+            // field touches the Android framework's stub jar. Without this,
+            // any Android SDK method call throws "not mocked" - this makes stub
+            // methods return sensible defaults (e.g. Uri.EMPTY works) instead,
+            // which is enough for these tests since they never need real URI
+            // parsing logic, only a placeholder value.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
@@ -66,11 +79,17 @@ dependencies {
     implementation(libs.retrofit.converter.moshi)
     implementation(libs.okhttp.core)
     implementation(libs.okhttp.logging.interceptor)
+    implementation(libs.moshi.core)
     ksp(libs.moshi.kotlin.codegen)
 
     implementation(libs.kotlinx.coroutines.android)
 
+    implementation(libs.androidx.documentfile)
+    implementation(libs.fuzzywuzzy)
+    implementation(libs.jaudiotagger)
+
     testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }
