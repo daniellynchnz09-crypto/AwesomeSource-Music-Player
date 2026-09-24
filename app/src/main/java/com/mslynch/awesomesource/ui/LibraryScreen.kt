@@ -5,6 +5,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,11 +48,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -59,6 +64,8 @@ import androidx.compose.ui.unit.dp
 import com.mslynch.awesomesource.organize.model.ReviewStatus
 import com.mslynch.awesomesource.organize.persistence.entity.TrackEntity
 import com.mslynch.awesomesource.organize.persistence.entity.reviewStatus
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /**
  * Returning-user library screen: the organized track list plus a button to
@@ -271,9 +278,13 @@ private fun StatusFilterChips(selected: Set<ReviewStatus>, onToggle: (ReviewStat
     }
 }
 
-/** A thin, always-visible thumb on the right edge sized/positioned from
- * [LazyListState.layoutInfo] - Android Compose (unlike Compose for Desktop) has no
- * built-in scrollbar component, so this is hand-rolled rather than assumed to exist. */
+/** A thumb on the right edge sized/positioned from [LazyListState.layoutInfo] and
+ * draggable like a Windows scrollbar - Android Compose (unlike Compose for Desktop)
+ * has no built-in scrollbar component, so both the visual and the drag behavior are
+ * hand-rolled. Grabbing anywhere on the (wide, easy-to-hit) track jumps straight to
+ * that position via [LazyListState.scrollToItem] - deliberately not the animated
+ * `animateScrollToItem`, since the whole point is moving fast through a long list,
+ * not watching it glide there. */
 @Composable
 private fun TrackScrollbar(listState: androidx.compose.foundation.lazy.LazyListState, modifier: Modifier = Modifier) {
     val layoutInfo = listState.layoutInfo
@@ -282,28 +293,77 @@ private fun TrackScrollbar(listState: androidx.compose.foundation.lazy.LazyListS
     if (totalItems == 0 || visibleCount >= totalItems) return
 
     var trackHeightPx by remember { mutableStateOf(0) }
+    var isDragging by remember { mutableStateOf(false) }
     val density = LocalDensity.current
+    val coroutineScope = rememberCoroutineScope()
     val thumbFraction = (visibleCount.toFloat() / totalItems).coerceIn(0.08f, 1f)
     val maxTopFraction = 1f - thumbFraction
     val scrollDenominator = (totalItems - visibleCount).coerceAtLeast(1)
     val scrollFraction = (listState.firstVisibleItemIndex.toFloat() / scrollDenominator).coerceIn(0f, 1f)
     val topFraction = (scrollFraction * maxTopFraction).coerceIn(0f, maxTopFraction)
 
+    // Centers the thumb under the finger: a touch at pixel y should put the
+    // thumb's own center there, not its top-left corner, or dragging would feel
+    // like it's fighting a constant vertical offset. Reads listState.layoutInfo
+    // fresh on every call (not the totalItems/visibleCount captured at the
+    // enclosing composition) since jumpTo keeps running across many scroll ticks
+    // during one continuous drag - it must never work off stale values from
+    // whichever recomposition happened to be current when the drag started.
+    fun jumpTo(touchY: Float) {
+        if (trackHeightPx <= 0) return
+        val info = listState.layoutInfo
+        val total = info.totalItemsCount
+        val visible = info.visibleItemsInfo.size
+        if (total == 0 || visible >= total) return
+        val fraction = (visible.toFloat() / total).coerceIn(0.08f, 1f)
+        val denominator = (total - visible).coerceAtLeast(1)
+        val thumbHeightPx = trackHeightPx * fraction
+        val usableRangePx = (trackHeightPx - thumbHeightPx).coerceAtLeast(1f)
+        val desiredTopPx = (touchY - thumbHeightPx / 2f).coerceIn(0f, usableRangePx)
+        val positionFraction = desiredTopPx / usableRangePx
+        val targetIndex = (positionFraction * denominator).roundToInt().coerceIn(0, denominator)
+        coroutineScope.launch { listState.scrollToItem(targetIndex) }
+    }
+
     Box(
         modifier
             .fillMaxHeight()
-            .width(12.dp)
-            .onSizeChanged { trackHeightPx = it.height },
+            // Wider than the visible thumb so it's actually easy to grab with a
+            // finger, matching how a real scrollbar's hit target works.
+            .width(28.dp)
+            .onSizeChanged { trackHeightPx = it.height }
+            // A constant key is deliberate: keying this on totalItems/visibleCount
+            // (as an earlier version did) restarted the whole gesture detector mid-
+            // drag every time a jumpTo() call changed the scroll position enough to
+            // shift visibleItemsInfo.size by even one item - which cancelled the
+            // in-progress drag() coroutine mere milliseconds into every real drag,
+            // making it look like only the initial touch-down ever registered. A
+            // real device/emulator swipe caught this; it would pass unnoticed with
+            // single discrete taps alone.
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    isDragging = true
+                    jumpTo(down.position.y)
+                    drag(down.id) { change ->
+                        jumpTo(change.position.y)
+                        change.consume()
+                    }
+                    isDragging = false
+                }
+            },
     ) {
         val thumbHeightDp = with(density) { (trackHeightPx * thumbFraction).toDp() }
         val offsetDp = with(density) { (trackHeightPx * topFraction).toDp() }
+        val thumbWidth = if (isDragging) 8.dp else 4.dp
+        val thumbAlpha = if (isDragging) 0.8f else 0.4f
         Box(
             Modifier
                 .align(Alignment.TopCenter)
                 .offset(y = offsetDp)
-                .width(4.dp)
+                .width(thumbWidth)
                 .height(thumbHeightDp)
-                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f), RoundedCornerShape(2.dp)),
+                .background(MaterialTheme.colorScheme.onSurface.copy(alpha = thumbAlpha), RoundedCornerShape(4.dp)),
         )
     }
 }

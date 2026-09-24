@@ -231,9 +231,27 @@ that status - `MainViewModel.isolateStatusFilter`), a search box with a field-pi
 dropdown (search by title/artist/album/status or all of them -
 `MainViewModel.searchField`/`SearchField`), a multi-select filter-chip row for
 combining statuses (`MainViewModel.toggleStatusFilter` - e.g. unchecking Approved
-hides it), and a hand-rolled right-edge scrollbar (`TrackScrollbar`, sized/positioned
-from `LazyListState.layoutInfo` - Android Compose, unlike Compose for Desktop, has no
-built-in scrollbar component). The list defaults to `NO_MATCH_FOUND` only
+hides it), and a hand-rolled, draggable right-edge scrollbar (`TrackScrollbar`, sized/
+positioned from `LazyListState.layoutInfo` - Android Compose, unlike Compose for
+Desktop, has no built-in scrollbar component). Grabbing anywhere on the (wide, 28dp)
+track jumps straight to that position via `LazyListState.scrollToItem` (not the
+animated `animateScrollToItem` - the point is moving fast, not watching it glide),
+and the same handler tracks a continuing drag, not just the initial touch. Hit and
+fixed one real Compose gesture bug while adding drag support: the `pointerInput`
+modifier was keyed on `listState.layoutInfo`'s `totalItemsCount`/`visibleItemsInfo.size`,
+which change *as a result of* the scrollbar's own `jumpTo()` calls during a drag - so
+every jump cancelled and restarted the whole gesture detector, killing the
+in-progress drag a few milliseconds in and making it look like only the initial
+touch-down ever registered (a single tap-to-position worked fine throughout; only
+continuous dragging was broken, which is exactly why it looked fine until actually
+tested with a real swipe rather than a tap). Fixed by using a stable `pointerInput(Unit)`
+key and having `jumpTo()` re-read `listState.layoutInfo` fresh on every call instead
+of closing over values captured at whichever recomposition started the gesture.
+Verified with real `adb shell input swipe` gestures of varying length on the
+emulator: a short drag and a longer drag landed at distinctly different, correctly-
+ordered positions in the 406-item No Match Found list, confirming continuous
+proportional tracking rather than just the single-jump behavior that already worked
+pre-fix. The list defaults to `NO_MATCH_FOUND` only
 (`MainViewModel.statusFilter`'s initial value). Tapping a row opens a new
 `TrackDetailScreen` (shown as an in-place screen swap inside `LibraryScreen` via
 `MainViewModel.selectedTrackPath`, not a nav-graph route, since a real file path can
