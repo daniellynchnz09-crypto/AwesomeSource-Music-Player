@@ -125,6 +125,38 @@ have shipped silently - the exact trap the first native attempt fell into):
    under `@RunWith(RobolectricTestRunner::class)`, which provides a genuine working
    `Uri` implementation instead of a null stub.
 
+UI: the Setup/Library/Settings screens are now wired up in Compose at
+`app/src/main/java/com/mslynch/awesomesource/ui/` and `MainActivity.kt`, the direct
+equivalent of `legacy-expo-attempt/app/index.tsx`, `library.tsx`, and `settings.tsx`.
+`MainViewModel` (an `AndroidViewModel`) owns the single in-flight `OrganizeLibrary`
+run, the Room-backed track list (`TrackDao.observeAll()` as a `Flow`), and the three
+`SecureSettings` fields, so both Setup and Library share one organize call instead of
+duplicating it per screen. `MainActivity`'s `NavHost` picks `SetupScreen` or
+`LibraryScreen` as the start destination based on `MainViewModel.trackCount` (null
+means "still checking", matching the Expo attempt's `getTrackCount()` gate), and a
+`LaunchedEffect` on the Setup route navigates to Library once an organize run brings
+the count above zero - the Compose equivalent of `router.replace('/library')`.
+`OrganizeProgressBar` is a direct port of `legacy-expo-attempt/src/components/ProgressBar.tsx`
+(one bar spanning all four `OrganizeLibrary.Phase` values, each phase owning an
+equal-width segment and its own color, plus a `processed/total (percent%)` label).
+Two dependencies needed adding that the pipeline port hadn't required:
+`androidx.compose.material:material-icons-core` (for `Icons.Filled.Settings` and
+`Icons.AutoMirrored.Filled.ArrowBack` - not a transitive dependency of `material3`
+itself) and `androidx.lifecycle:lifecycle-viewmodel-compose` (for the `viewModel()`
+composable helper). One real bug worth noting: `OrganizeLibrary.organize()` calls
+`Scanner.scanFolder()`, a synchronous recursive `DocumentFile` walk that is not
+itself dispatched off the caller's thread - `MainViewModel.organize()` wraps the
+whole call in `withContext(Dispatchers.IO)` rather than launching it directly on
+`viewModelScope`'s default Main dispatcher, since the latter would freeze the UI for
+the entire scan phase on a large library. Verified for real: `./gradlew assembleDebug`
+succeeds, all 58 pipeline unit tests still pass unaffected, and the Setup and
+Settings screens were screenshotted on the emulator (`Claude/Screenshots/`) showing
+the centered "Setup" header, the gear icon, "Let's add to your library" above the
+button, and real navigation to a working Settings screen with all three fields.
+Not yet wired: the Library screen's own screenshot (needs a real organize run against
+actual files, not exercised here), and nothing writes corrected tags back to files
+(see OPEN SPIKES item 5 below - unchanged by this pass).
+
 LESSONS TO CARRY FORWARD FROM THE EXPO ATTEMPT (found and verified for real during
 that pass - see `legacy-expo-attempt/README.md` for the source files; re-verify
 each since time may have passed, but don't reintroduce bugs already found once):
@@ -183,8 +215,12 @@ OPEN SPIKES (tracked in more detail in Claude/To Do list.md):
    attempt's read-only libraries), so the "no verified write-capable library" part
    of this blocker is resolved - the write path itself just isn't wired into the
    pipeline yet.
-6. No screen calls `OrganizeLibrary.kt` yet - the Compose equivalent of the Expo
-   attempt's Setup/Library/Settings screens hasn't been built.
+6. ~~No screen calls `OrganizeLibrary.kt` yet~~ - done, see the "UI" section above:
+   Setup/Library/Settings screens now exist in Compose and were verified on the
+   emulator. Still outstanding: a real end-to-end organize run against actual audio
+   files (only the empty-library Setup/Settings states have been exercised so far),
+   and the Neo-Aero/Dark-Aero design pass (Claude/To Do list.md item 10) is
+   deliberately not part of this - these are plain Material3 screens for now.
 
 CHROMAPRINT FINGERPRINT GENERATION: researched during the Expo attempt, not
 implemented in either attempt so far. Findings: no existing React Native/Expo

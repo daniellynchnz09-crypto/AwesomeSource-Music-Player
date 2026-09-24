@@ -36,10 +36,12 @@ nested-block-comment parse bug, a smart-cast/closure-capture error, and a
 gaps from every prior attempt got real progress as a side effect of picking better
 libraries this time: tag reading now also supports *writing* (`net.jthink:jaudiotagger`,
 not wired into the pipeline yet), and fuzzy matching uses a real published library
-(`me.xdrop:fuzzywuzzy`) instead of a from-scratch reimplementation. Nothing calls
-the pipeline from a UI yet - only a placeholder `MainActivity` exists. The AcoustID
-key still needs replacing with an *application* key (see ANDROID ARCHITECTURE.md)
-regardless of stack.
+(`me.xdrop:fuzzywuzzy`) instead of a from-scratch reimplementation. A Compose
+Setup/Library/Settings UI now wires up the pipeline (`app/src/main/java/com/mslynch/awesomesource/ui/`),
+verified on the emulator for the empty-library Setup and Settings states
+(screenshots in `Claude/Screenshots/`) - a real end-to-end organize run against
+actual audio files hasn't been exercised yet. The AcoustID key still needs replacing
+with an *application* key (see ANDROID ARCHITECTURE.md) regardless of stack.
 
 ## Running it
 

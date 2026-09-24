@@ -47,10 +47,16 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
    Claude/MUSIC ORGANIZATION.md.
 7. The Flagged review queue UI (chat-style verification per Claude/MUSIC
    ORGANIZATION.md) has no implementation yet in any attempt.
-8. No UI wires up the new pipeline yet (`OrganizeLibrary.kt` is a complete,
-   tested scan-to-database pipeline, but nothing calls it from a screen) - the
-   equivalent of the Expo attempt's Setup/Library/Settings screens hasn't been
-   built for Compose yet.
+8. ~~No UI wires up the new pipeline yet~~ - done: Compose Setup/Library/Settings
+   screens exist at `app/src/main/java/com/mslynch/awesomesource/ui/` and
+   `MainActivity.kt`, backed by a `MainViewModel` that owns the single in-flight
+   `OrganizeLibrary` run, the Room track list, and the three `SecureSettings`
+   fields - see ANDROID ARCHITECTURE.md's "UI" section for the full design and the
+   real bug found (wrapping `organize()` in `Dispatchers.IO` so the synchronous
+   `Scanner.scanFolder()` walk doesn't freeze the UI thread). Verified on the
+   emulator (screenshots in `Claude/Screenshots/`) for the empty-library Setup and
+   Settings states; a real end-to-end organize run against actual audio files, and
+   the Library screen's own track-list view, are still unexercised.
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
    needs to be built once playback (Media3/ExoPlayer) is wired up.
 10. The design pass (Neo-Aero/Dark-Aero/skeuomorphic per Claude/App DESIGN.md) is
