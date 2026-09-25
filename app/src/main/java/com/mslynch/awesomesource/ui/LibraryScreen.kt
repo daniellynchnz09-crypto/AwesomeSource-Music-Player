@@ -61,16 +61,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import com.mslynch.awesomesource.organize.model.ReviewStatus
 import com.mslynch.awesomesource.organize.persistence.entity.TrackEntity
 import com.mslynch.awesomesource.organize.persistence.entity.reviewStatus
 import kotlinx.coroutines.launch
+import java.io.File
 import kotlin.math.roundToInt
 
 /**
@@ -492,6 +495,7 @@ private fun TrackRow(track: TrackEntity, selected: Boolean, inSelectionMode: Boo
                     .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp)),
             )
         }
+        TrackArt(track.coverArtPath, modifier = Modifier.padding(end = 12.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 track.title ?: track.path.substringAfterLast('/'),
@@ -523,6 +527,33 @@ private fun TrackRow(track: TrackEntity, selected: Boolean, inSelectionMode: Boo
         }
     }
     HorizontalDivider()
+}
+
+/** A small square thumbnail like a real music player's track list - embedded
+ * artwork extracted to a local cache file by `AudioTagReader.cacheArtwork` (see
+ * `TrackEntity.coverArtPath`'s doc comment), loaded via Coil (handles local
+ * `file://`-style paths out of the box, with its own memory/disk caching so this
+ * doesn't re-decode the same image on every recomposition/scroll). Falls back to a
+ * plain tinted square for tracks with no embedded art - deliberately not an icon
+ * glyph, since this project only depends on `material-icons-core`, not the
+ * extended icon set a music-note glyph would need. */
+@Composable
+private fun TrackArt(coverArtPath: String?, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .size(48.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        if (coverArtPath != null) {
+            AsyncImage(
+                model = File(coverArtPath),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
 }
 
 internal fun reviewStatusLabel(status: ReviewStatus): String = when (status) {

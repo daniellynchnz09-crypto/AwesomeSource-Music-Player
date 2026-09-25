@@ -43,6 +43,7 @@ class AudioTagReader(private val context: Context) {
         val durationSeconds: Double?,
         val hasCoverArt: Boolean,
         val coverArtMime: String?,
+        val coverArtPath: String?,
     )
 
     sealed class Outcome {
@@ -89,6 +90,7 @@ class AudioTagReader(private val context: Context) {
                     durationSeconds = header?.preciseTrackLength,
                     hasCoverArt = tag?.firstArtwork != null,
                     coverArtMime = tag?.firstArtwork?.mimeType,
+                    coverArtPath = cacheArtwork(tag?.firstArtwork, path),
                 )
             )
         } catch (e: Exception) {
@@ -105,6 +107,28 @@ class AudioTagReader(private val context: Context) {
      * "blank" here - both become null. */
     private fun safeGet(tag: Tag?, key: FieldKey): String? =
         if (tag == null) null else runCatching { tag.getFirst(key) }.getOrNull()?.ifBlank { null }
+
+    /** Extracts an embedded artwork's raw bytes to a small cache file (keyed by the
+     * track's own path, so a rescan reuses the same file instead of rewriting it
+     * every time) and returns its absolute path - for the Library row thumbnail
+     * (`ui/LibraryScreen.kt`'s `TrackRow`), which needs a real loadable image, not
+     * just the `hasCoverArt`/`coverArtMime` boolean-and-mimetype pair this class
+     * already reported. Returns null for anything that goes wrong (no artwork,
+     * empty data, a write failure) - a missing thumbnail is never worth failing the
+     * whole tag read over. */
+    private fun cacheArtwork(artwork: org.jaudiotagger.tag.images.Artwork?, path: LibraryPath): String? {
+        val data = artwork?.binaryData
+        if (data == null || data.isEmpty()) return null
+        return try {
+            val artDir = File(context.cacheDir, "track-art").apply { mkdirs() }
+            val extension = if (artwork.mimeType?.contains("png", ignoreCase = true) == true) "png" else "jpg"
+            val destination = File(artDir, "${path.value.hashCode()}.$extension")
+            if (!destination.exists()) destination.writeBytes(data)
+            destination.absolutePath
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     companion object {
         private val SUPPORTED_EXTENSIONS = setOf(".mp3", ".flac", ".m4a", ".mp4", ".aac", ".ogg")

@@ -4,6 +4,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import android.content.Context
 import com.mslynch.awesomesource.organize.persistence.dao.LibraryDao
 import com.mslynch.awesomesource.organize.persistence.dao.QueryCacheDao
@@ -37,12 +39,16 @@ import com.mslynch.awesomesource.organize.persistence.entity.TrackEntity
         MbQueryCacheEntity::class,
         GeminiGroundingCacheEntity::class,
     ],
-    // Bumped from 1: TrackEntity gained matchedReleaseId/proposed* columns for the
-    // review-status feature. No migration is written since this is pre-release,
-    // schema-unstable dev data with no real users yet - fallbackToDestructiveMigration
-    // below just wipes and recreates on a version mismatch, consistent with how
-    // every schema change has been handled so far in this project.
-    version = 2,
+    // Bumped from 1 -> 2: TrackEntity gained matchedReleaseId/proposed* columns for
+    // the review-status feature (no migration written then - this was pre-release,
+    // schema-unstable dev data with no real scanned library yet, so
+    // fallbackToDestructiveMigration's wipe-and-recreate was an acceptable trade).
+    // Bumped 2 -> 3: TrackEntity gained coverArtPath for the Library row thumbnail
+    // feature - this time a real Migration is written instead of relying on the
+    // destructive fallback, since by this point the user has a real, hard-won,
+    // fully-organized ~1368-track library (review statuses, accepted matches, bulk
+    // edits) that a silent wipe would have thrown away for a purely additive column.
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -57,13 +63,25 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var instance: AppDatabase? = null
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN coverArtPath TEXT")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "awesomesource.db",
-                ).fallbackToDestructiveMigration(true).build().also { instance = it }
+                )
+                    .addMigrations(MIGRATION_2_3)
+                    // Still kept as a safety net for any version jump the explicit
+                    // migrations above don't cover (e.g. a much older version 1 db).
+                    .fallbackToDestructiveMigration(true)
+                    .build()
+                    .also { instance = it }
             }
     }
 }

@@ -33,6 +33,12 @@ data class TrackEntity(
     val durationSeconds: Double?,
     val hasCoverArt: Boolean,
     val coverArtMime: String?,
+    /** A local `file://`-loadable absolute path to a cached copy of this track's
+     * embedded artwork, extracted by `AudioTagReader.cacheArtwork` - for the
+     * Library row thumbnail. Null for tracks with no embedded art (the row falls
+     * back to a Cover Art Archive URL keyed by [matchedReleaseId] if one exists, or
+     * a placeholder icon otherwise - see `ui/LibraryScreen.kt`'s `TrackRow`). */
+    val coverArtPath: String? = null,
     val composer: String?,
     val libraryType: LibraryType?,
     val fileSizeBytes: Long,
@@ -100,6 +106,7 @@ fun TrackEntity.toTrackMetadata(): TrackMetadata = TrackMetadata(
     durationSeconds = durationSeconds,
     hasCoverArt = hasCoverArt,
     coverArtMime = coverArtMime,
+    coverArtPath = coverArtPath,
     composer = composer,
     libraryType = libraryType,
     fileSizeBytes = fileSizeBytes,

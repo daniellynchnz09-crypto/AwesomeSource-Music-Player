@@ -32,6 +32,13 @@ documentfile = "1.1.0"
 fuzzywuzzy = "1.4.0"
 jaudiotagger = "3.0.1"
 robolectric = "4.17"
+# Verified against Maven Central's real maven-metadata.xml on 2026-09-25. The
+# newest stable release (3.6.3) depends on kotlin-stdlib 2.4.10, which is too new
+# for this project's pinned Kotlin 2.2.10 compiler (a real compile error:
+# "compiled with an incompatible version of Kotlin... can read versions up to
+# 2.3.0") - checked each release's own POM back to find 3.3.0, the newest version
+# that still depends on kotlin-stdlib 2.2.0, matching our pinned compiler exactly.
+coil = "3.3.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -78,6 +85,14 @@ fuzzywuzzy = { group = "me.xdrop", name = "fuzzywuzzy", version.ref = "fuzzywuzz
 # The actively-maintained `net.jthink` fork (not the stale `org.jaudiotagger`
 # original) - see organize/tags/AudioTagReader.kt's doc comment.
 jaudiotagger = { group = "net.jthink", name = "jaudiotagger", version.ref = "jaudiotagger" }
+# Compose image loading for the Library row album-art thumbnails - loads local
+# cached-artwork files (Coil's core fetchers handle file:// URIs with no extra
+# setup) with disk/memory caching handled for free. Network image loading (e.g. a
+# Cover Art Archive URL fallback for matched-but-artless tracks) would need the
+# separate coil-network-okhttp artifact plus registering it on the singleton
+# ImageLoader - deliberately left out of this pass to keep the change scoped to
+# what's actually verified working; local embedded art covers the common case.
+coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }

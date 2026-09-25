@@ -549,6 +549,67 @@ the surface:
    showed a correct proposed-match card: "Artist: Skrillex & Bobby Raps". Screenshots:
    `collab_tracks_flagged_match_found.png`, `collab_artist_proposed_match.png`.
 
+ALBUM ART THUMBNAILS IN THE LIBRARY LIST: per the user's request for a small square
+thumbnail on each row "like a real music player." `AudioTagReader.cacheArtwork()`
+extracts an embedded artwork's raw bytes (jaudiotagger's `Artwork.getBinaryData()`,
+confirmed via `javap` against the real jar rather than guessed) to a small cache file
+keyed by the track's own path, and the resulting absolute path is threaded through as
+a new `coverArtPath` field (`TrackMetadata` -> `TrackEntity` -> `TrackRow`'s new
+`TrackArt` composable, which loads it via Coil). Added Coil (`coil-compose`) for
+Compose image loading rather than hand-rolling bitmap decoding - its core artifact
+handles local `file://`-style paths with its own memory/disk caching, no extra setup
+needed (a Cover Art Archive network-URL fallback for matched-but-artless tracks was
+deliberately left out of this pass - it would need the separate `coil-network-okhttp`
+artifact plus registering it on the singleton `ImageLoader`, real additional
+complexity not verified this session). One version headache found and fixed for
+real: Coil's newest stable release (3.6.3) depends on `kotlin-stdlib` 2.4.10, which
+this project's pinned Kotlin 2.2.10 compiler can't read ("compiled with an
+incompatible version of Kotlin... can read versions up to 2.3.0", a real compile
+error) - checked each release's own POM back through the version history to find
+3.3.0, the newest version that still depends on `kotlin-stdlib` 2.2.0, matching the
+pinned compiler exactly.
+
+The schema change (`TrackEntity` gained `coverArtPath`) was handled differently from
+every prior schema change this project has made: instead of bumping the version and
+relying on `fallbackToDestructiveMigration`'s wipe-and-recreate (the practice for
+every earlier "pre-release, schema-unstable dev data" change), a real
+`Migration(2, 3)` (`ALTER TABLE tracks ADD COLUMN coverArtPath TEXT`) was written
+instead, specifically because by this point the user has a real, hard-won,
+fully-organized ~1368-track library (review statuses, accepted matches, bulk edits)
+that a silent wipe would have thrown away for a purely additive column - see the
+incident directly below for exactly how costly a full-library data loss actually is
+once real user data exists, which is precisely why this migration was written as a
+real one instead.
+
+A REAL DATA-LOSS INCIDENT WHILE VERIFYING THE THUMBNAILS, CAUGHT AND FULLY RECOVERED:
+existing tracks were scanned before `coverArtPath` existed, so verifying real
+thumbnails required a fresh "Choose Folder & Organize" run to re-read their tags. Only
+after starting it (visible mid-run: "Warped Tour 05"/"Good Space" reverting to
+"(no artist)") was the actual consequence recognized: `organize()`'s tag-reading phase
+calls `persistTrack(track)` as an unconditional upsert of the *freshly re-read file
+tags* for every file, and since tag-*writing* back into files has never been
+implemented (still true - see the To Do list), every previously accepted-match or
+manually/bulk-edited correction across the *entire* library only ever lived in the
+app's own database, never in the files themselves - a full rescan silently reverts
+all of it back to whatever the raw, unedited file tags actually say. This is not a
+new bug introduced this session; it is a direct, previously-unstated consequence of
+the already-documented "nothing writes tags back to files yet" gap, one this session
+triggered for real against the user's actual reviewed library rather than catching it
+in the abstract. Recovered with zero data loss: a full raw database pull
+(`qff_verify2.db`, taken minutes earlier while verifying the collaboration-artist fix)
+still had every field exactly as the user had reviewed/edited it, at the old schema
+version (2) - restored by stopping the app, overwriting the live database file with
+that backup, and relaunching, letting the real `Migration(2, 3)` written just before
+this incident upgrade the restored file to version 3 non-destructively in place.
+Verified for real, not assumed: `PRAGMA user_version` read back as 3, all 1368 rows
+present, the `coverArtPath` column existed with no data loss, and the Quest For Fire
+tracks' collaboration `proposedArtist` values were confirmed byte-for-byte intact
+directly from the database. The general lesson, worth remembering before ever running
+a full rescan again for any reason (including "just to check a UI feature"): it is
+not a safe, side-effect-free operation on a library that has any accepted matches or
+manual edits in it, and tag-*writing* is now a meaningfully higher-priority gap to
+close than its position in the To Do list previously suggested.
+
 LESSONS TO CARRY FORWARD FROM THE EXPO ATTEMPT (found and verified for real during
 that pass - see `legacy-expo-attempt/README.md` for the source files; re-verify
 each since time may have passed, but don't reintroduce bugs already found once):

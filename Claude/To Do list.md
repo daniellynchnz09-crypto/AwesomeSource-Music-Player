@@ -135,6 +135,25 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
     is likely to have quietly improved artist-credit accuracy for every other
     already-matched multi-track album in the library too, though that wasn't
     separately re-verified this pass.
+8k. ~~Album art thumbnails on the left of each Library row, like a real music
+    player~~ - done: see ANDROID ARCHITECTURE.md's "ALBUM ART THUMBNAILS IN THE
+    LIBRARY LIST" section. Embedded artwork is extracted to a cache file during tag
+    reading and shown via Coil; a Cover Art Archive network fallback for
+    matched-but-artless tracks was deliberately left for later. Existing tracks need
+    a fresh rescan to populate their thumbnail, since extraction only happens during
+    tag reading - see 8l below for why that's no longer a casual thing to do.
+8l. A full rescan ("Choose Folder & Organize" again on an already-organized library)
+    was found, the hard way, to silently revert every previously accepted-match or
+    manually/bulk-edited correction back to the tracks' raw, unedited file tags -
+    not a new bug, but a real, previously-unstated consequence of tag-*writing*
+    never having been implemented (item 5 below), since every correction only ever
+    lived in the app's database. Caught mid-incident and fully recovered with zero
+    data loss (see ANDROID ARCHITECTURE.md's "A REAL DATA-LOSS INCIDENT" section) via
+    a database backup taken minutes earlier for an unrelated reason - not a
+    dependable recovery plan for next time. Tag-writing (item 5) should be treated
+    as higher priority than its list position previously suggested, and until it
+    exists, a full rescan of an already-reviewed library should be treated as a
+    destructive operation, not a routine one.
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
    needs to be built once playback (Media3/ExoPlayer) is wired up.
 10. The design pass (Neo-Aero/Dark-Aero/skeuomorphic per Claude/App DESIGN.md) is

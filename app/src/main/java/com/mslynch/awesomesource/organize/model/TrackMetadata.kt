@@ -33,6 +33,12 @@ data class TrackMetadata(
     val durationSeconds: Double? = null,
     val hasCoverArt: Boolean = false,
     val coverArtMime: String? = null,
+    /** A local `file://`-loadable path to a cached copy of this track's artwork
+     * (embedded tag art extracted by `AudioTagReader`, or a sidecar's cover), for
+     * the Library row thumbnail - see `ui/LibraryScreen.kt`'s `TrackRow`. Distinct
+     * from [hasCoverArt] (a plain boolean flag used elsewhere) since actually
+     * *displaying* a thumbnail needs a real loadable path, not just a yes/no. */
+    val coverArtPath: String? = null,
     val composer: String? = null,
     val libraryType: LibraryType? = null,
     val artistCredits: List<ArtistCredit> = emptyList(),

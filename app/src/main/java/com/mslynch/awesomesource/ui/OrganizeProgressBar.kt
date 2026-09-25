@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mslynch.awesomesource.organize.pipeline.OrganizeLibrary
 
@@ -51,8 +52,16 @@ fun OrganizeProgressBar(progress: OrganizeLibrary.Progress, modifier: Modifier =
             )
             val percentText = "%.1f".format(overallFraction * 100)
             val totalText = if (progress.total > 0) progress.total.toString() else "?"
+            // Percentage sits right next to the bar (the number most worth glancing
+            // at while it's running) and is sized to actually stand out; the raw
+            // processed/total count trails after it as secondary detail.
             Text(
-                "${progress.processed}/$totalText ($percentText%)",
+                "$percentText%",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                "${progress.processed}/$totalText",
                 style = MaterialTheme.typography.bodySmall,
             )
         }

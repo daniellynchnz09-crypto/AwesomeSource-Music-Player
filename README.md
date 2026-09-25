@@ -85,6 +85,20 @@ correctly surface as a draft to accept instead of being silently discarded (see
 ANDROID ARCHITECTURE.md's "A REAL FOUNDATIONAL BUG FOUND VIA THE SKRILLEX ALBUM"
 section).
 
+The Library list now shows a small album-art thumbnail per track (extracted from
+embedded tags, loaded via Coil - see "ALBUM ART THUMBNAILS IN THE LIBRARY LIST").
+Verifying it against real data surfaced and fully recovered from a genuinely serious
+finding: a full "Choose Folder & Organize" rescan of an *already-organized* library
+silently reverts every previously accepted-match or manually-edited correction back
+to the tracks' raw, unwritten file tags, since tag-*writing* was never implemented -
+every correction has only ever lived in the app's own database. Caught mid-incident,
+stopped immediately, and recovered with zero data loss from a database backup taken
+minutes earlier for an unrelated reason (verified directly against the database
+afterward, not just the UI) - see ANDROID ARCHITECTURE.md's "A REAL DATA-LOSS
+INCIDENT" section. Tag-writing should now be treated as a higher-priority gap than
+its place in the to-do list previously suggested; until it exists, a full rescan of
+an already-reviewed library is a destructive operation, not a routine one.
+
 ## Running it
 
 ```

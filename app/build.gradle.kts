@@ -89,6 +89,7 @@ dependencies {
     implementation(libs.androidx.documentfile)
     implementation(libs.fuzzywuzzy)
     implementation(libs.jaudiotagger)
+    implementation(libs.coil.compose)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
