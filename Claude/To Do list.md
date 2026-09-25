@@ -218,7 +218,22 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
     `matchedReleaseId` + `trackNumber` (e.g. two different Bach works, BWV 1041 and
     BWV 1047, both claiming position 3 of the same release). Generalizing the fix
     into the core auto-apply path is a larger, riskier change than the specific bug
-    reported in 8s - needs the user's go-ahead before touching it.
+    reported in 8s - needs the user's go-ahead before touching it. The user agreed
+    to dig into this next session, alongside 8u below.
+8u. NOT yet investigated - reported by the user, deferred to next session: a
+    number of tracks that were already Approved in an earlier session have reverted
+    back to Match Found in this session, showing the *same* proposed suggestions as
+    before. Not yet root-caused - candidate suspects worth checking first: whether
+    `requeryTracks`/a rescan is somehow re-processing a track `isCurated()` should
+    be protecting (it shouldn't, per the isCurated() guard in `organize()`'s loop -
+    but that guard doesn't apply to every code path that can write a `proposed*`
+    field, e.g. `discoverAlbumSiblings` only checks `sibling.matchedReleaseId != null`
+    before overwriting proposed* fields, which would clobber an *already-Approved*
+    track's proposed fields too if it happens to be scanned as a "sibling" again);
+    or whether `TrackEntity.reviewStatus()`'s `artistConfirmed` check is being
+    tripped by something that changed this session (e.g. the `hasAllDetails` fix in
+    8m altering which tracks even reach that check). Needs a real before/after
+    database comparison on a specific reverted track before guessing further.
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
    needs to be built once playback (Media3/ExoPlayer) is wired up.
 10. The design pass (Neo-Aero/Dark-Aero/skeuomorphic per Claude/App DESIGN.md) is
