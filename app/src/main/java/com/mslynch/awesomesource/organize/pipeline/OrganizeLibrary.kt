@@ -94,7 +94,7 @@ class OrganizeLibrary(private val context: Context) {
 
         val mbClient = MusicBrainzClient(options.musicBrainzContact)
         val geminiClient = GeminiGroundingClient(options.geminiApiKey, queryCacheDao = db.queryCacheDao())
-        val queryGroup = QueryGroup(mbClient, coverArtClient, db.queryCacheDao())
+        val queryGroup = QueryGroup(mbClient, coverArtClient, db.queryCacheDao(), db.trackDao())
         for ((i, group) in groups.withIndex()) {
             processGroup(queryGroup, geminiClient, group)
             options.onProgress?.invoke(Progress(Phase.QUERYING, i + 1, groups.size))
@@ -303,13 +303,25 @@ class OrganizeLibrary(private val context: Context) {
      * just seeded from the database instead of a fresh SAF scan. */
     suspend fun requeryTracks(paths: Collection<String>, options: Options) {
         if (paths.isEmpty()) return
-        val entities = db.trackDao().getByPaths(paths.toList())
+        // Same protection as organize()'s own scan loop, and for the same reason -
+        // found via a real regression report: a bulk edit applied to a selection
+        // that happened to include some already-Approved tracks alongside new ones
+        // was re-querying MusicBrainz for *all* of them, including the curated
+        // ones. A fresh search can come back with a slightly different-formatted
+        // (but not actually wrong) candidate - different capitalization, collab
+        // ordering, or remix-suffix styling - than whatever string was already
+        // accepted into the real field, which reviewStatus()'s artistConfirmed
+        // check then reads as a disagreement, silently demoting a real, already-
+        // reviewed APPROVED track back to MATCH_FOUND with what looks to the user
+        // like "the same suggestion" (it IS the same match, just a fresh string).
+        // A curated track has nothing left for a requery to usefully do anyway.
+        val entities = db.trackDao().getByPaths(paths.toList()).filterNot { it.isCurated() }
         if (entities.isEmpty()) return
         val tracks = entities.map { it.toTrackMetadata() }
 
         val mbClient = MusicBrainzClient(options.musicBrainzContact)
         val geminiClient = GeminiGroundingClient(options.geminiApiKey, queryCacheDao = db.queryCacheDao())
-        val queryGroup = QueryGroup(mbClient, coverArtClient, db.queryCacheDao())
+        val queryGroup = QueryGroup(mbClient, coverArtClient, db.queryCacheDao(), db.trackDao())
 
         for (group in AlbumGrouper.groupIntoAlbums(tracks)) {
             val resolved = processGroup(queryGroup, geminiClient, group)

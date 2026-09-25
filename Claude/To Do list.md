@@ -211,29 +211,41 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
     future false positive, since `isCurated()` otherwise leaves a bad draft stuck
     forever - used it for real to clear this exact row, verified against the
     database and the stats bar (Match Found 19->18, No Match 226->227).
-8t. NOT yet fixed - flagged, not acted on unprompted: the same "no library-wide
-    awareness of already-claimed positions" gap also exists in the regular
-    per-group matching path (`ReleaseResolver`, used by every ordinary match, not
-    just sibling detection) - found three more pairs of tracks sharing a
-    `matchedReleaseId` + `trackNumber` (e.g. two different Bach works, BWV 1041 and
-    BWV 1047, both claiming position 3 of the same release). Generalizing the fix
-    into the core auto-apply path is a larger, riskier change than the specific bug
-    reported in 8s - needs the user's go-ahead before touching it. The user agreed
-    to dig into this next session, alongside 8u below.
-8u. NOT yet investigated - reported by the user, deferred to next session: a
-    number of tracks that were already Approved in an earlier session have reverted
-    back to Match Found in this session, showing the *same* proposed suggestions as
-    before. Not yet root-caused - candidate suspects worth checking first: whether
-    `requeryTracks`/a rescan is somehow re-processing a track `isCurated()` should
-    be protecting (it shouldn't, per the isCurated() guard in `organize()`'s loop -
-    but that guard doesn't apply to every code path that can write a `proposed*`
-    field, e.g. `discoverAlbumSiblings` only checks `sibling.matchedReleaseId != null`
-    before overwriting proposed* fields, which would clobber an *already-Approved*
-    track's proposed fields too if it happens to be scanned as a "sibling" again);
-    or whether `TrackEntity.reviewStatus()`'s `artistConfirmed` check is being
-    tripped by something that changed this session (e.g. the `hasAllDetails` fix in
-    8m altering which tracks even reach that check). Needs a real before/after
-    database comparison on a specific reverted track before guessing further.
+8t. ~~The same "no library-wide awareness of already-claimed positions" gap also
+    exists in the regular per-group matching path (`ReleaseResolver`, used by every
+    ordinary match, not just sibling detection) - found three more pairs of tracks
+    sharing a `matchedReleaseId` + `trackNumber` (e.g. two different Bach works, BWV
+    1041 and BWV 1047, both claiming position 3 of the same release)~~ - done, with
+    the user's go-ahead: `ReleaseResolver.resolveGroupToProposed` now takes a
+    `TrackDao`, queries every other track already matched to the same release (the
+    current group's own files excluded, so they don't block themselves from
+    reclaiming their own position), and excludes those positions from both the
+    singleton `bestMatchingPosition` call and `matchFilesToPositions`'s three
+    passes. `matchFilesToPositions` also gained a same-group uniqueness check on
+    pass 1 (an explicit tag number) that it never had before.
+8u. ~~A number of tracks that were already Approved in an earlier session had
+    reverted back to Match Found in a later session, showing the *same* proposed
+    suggestions as before~~ - root-caused and fixed: `OrganizeLibrary.requeryTracks`
+    (the automatic re-query `MainViewModel.bulkUpdateTrackDetails` runs after every
+    bulk edit) never checked `isCurated()` at all, unlike `organize()`'s own scan
+    loop - so a bulk edit applied to a selection that happened to include some
+    already-Approved tracks alongside new ones re-queried MusicBrainz for *all* of
+    them. A fresh search can return a slightly different-formatted (not wrong, just
+    different capitalization/collab-ordering/remix-suffix styling) candidate than
+    whatever string was already accepted into the real field, which
+    `reviewStatus()`'s `artistConfirmed` check then reads as a disagreement -
+    silently demoting an already-reviewed APPROVED track back to MATCH_FOUND with
+    what looks like "the same suggestion" (it IS the same match, just a fresh
+    string). Fixed by filtering curated entities out of `requeryTracks` before
+    grouping, exactly like `organize()` already does. Verified for real: bulk-edited
+    an Approved Quest For Fire track's Genre field alone, confirmed the Genre change
+    applied while `artist`/`proposedArtist`/`matchedReleaseId` stayed byte-for-byte
+    identical and the track stayed Approved (previously this same action would have
+    re-triggered a MusicBrainz search for it). A `Mr. Bill - For A Friend.mp3` row
+    that looked reverted turned out to be a red herring from an incomplete database
+    read on my end (forgot to include the SQLite WAL file, which held the actual
+    fix) - not a real second regression, and a useful reminder to always pull
+    `-wal`/`-shm` alongside the main `.db` file when checking live app state.
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
    needs to be built once playback (Media3/ExoPlayer) is wired up.
 10. The design pass (Neo-Aero/Dark-Aero/skeuomorphic per Claude/App DESIGN.md) is

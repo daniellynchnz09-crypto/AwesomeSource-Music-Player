@@ -7,6 +7,7 @@ import com.mslynch.awesomesource.organize.model.AlbumGroup
 import com.mslynch.awesomesource.organize.model.MbCandidate
 import com.mslynch.awesomesource.organize.model.MetadataSource
 import com.mslynch.awesomesource.organize.model.TrackMetadata
+import com.mslynch.awesomesource.organize.persistence.dao.TrackDao
 import com.mslynch.awesomesource.organize.tags.FilenameParser
 
 /**
@@ -100,19 +101,30 @@ object ReleaseResolver {
      * similarity wins; a filename-derived track number is only the last resort,
      * tried after title matching rather than before it, since a real title
      * comparison is stronger evidence than a number scraped from a filename.
+     *
+     * `alreadyClaimed` seeds the used-positions set with positions a *different*
+     * group has already confirmed for this same release (see
+     * [resolveGroupToProposed]'s doc comment) - found via a real false-positive: two
+     * unrelated Bach movements (BWV 1041 and BWV 1047) both ended up claiming
+     * position 3 of the same release, because each was matched in its own separate
+     * group query with no idea the other had already taken that position.
      */
     private fun matchFilesToPositions(
         files: List<TrackMetadata>,
         tracksByPosition: Map<Int, MusicBrainzClient.ReleaseTrack>,
+        alreadyClaimed: Set<Int> = emptySet(),
     ): Map<String, Int> {
         val assigned = mutableMapOf<String, Int>()
-        val usedPositions = mutableSetOf<Int>()
+        val usedPositions = mutableSetOf<Int>().apply { addAll(alreadyClaimed) }
         val remaining = mutableListOf<TrackMetadata>()
 
-        // Pass 1: an explicit tag track_number is authoritative - claim it outright.
+        // Pass 1: an explicit tag track_number is authoritative - claim it outright,
+        // unless another file (in this group or already claimed elsewhere) already
+        // has it, in which case this file falls through to the weaker passes below
+        // rather than silently duplicating a position.
         for (track in files) {
             val number = track.trackNumber
-            if (number != null && number in tracksByPosition) {
+            if (number != null && number in tracksByPosition && number !in usedPositions) {
                 assigned[track.path.value] = number
                 usedPositions.add(number)
             } else {
@@ -163,14 +175,34 @@ object ReleaseResolver {
      * candidate under review that might get rejected. `false` remains available for
      * call sites that build a proposal without a confirmed match (there are none
      * today, but the parameter is kept rather than removed).
+     *
+     * `trackDao` is queried for every OTHER track already matched to `chosen`'s
+     * release, so a position confirmed by a *different* `AlbumGroup` - the same
+     * release's tracks can end up split across several groups over time, one
+     * matched cleanly earlier and another only reached later - is never handed out
+     * a second time (see [matchFilesToPositions]'s doc comment for the real
+     * false-positive that motivated this). The current group's own files are
+     * excluded from that check, since they're the ones being (re)assigned here and
+     * would otherwise block themselves from reclaiming their own position.
      */
     suspend fun resolveGroupToProposed(
         mbClient: MusicBrainzClient,
         coverArtClient: CoverArtClient,
+        trackDao: TrackDao,
         group: AlbumGroup,
         chosen: MbCandidate,
         fetchCoverArt: Boolean = true,
     ): Map<String, TrackMetadata> {
+        val groupPaths = group.files.map { it.path.value }.toSet()
+        val alreadyClaimed = if (chosen.releaseId.isNotEmpty()) {
+            trackDao.getByMatchedReleaseId(chosen.releaseId)
+                .filterNot { it.path in groupPaths }
+                .mapNotNull { it.trackNumber }
+                .toSet()
+        } else {
+            emptySet()
+        }
+
         if (group.isSingleton || chosen.isRecording) {
             val track = group.files[0]
             // A recording is linked to the release it appeared on - fetching that
@@ -186,8 +218,8 @@ object ReleaseResolver {
                 coverArtClient.fetchFullImage(chosen.releaseId)
             } else null
 
-            var trackNumber = bestMatchingPosition(chosen.title.ifEmpty { track.title }, releaseInfo.tracks)
-            if (trackNumber == null) trackNumber = FilenameParser.resolveTrackNumber(track)
+            var trackNumber = bestMatchingPosition(chosen.title.ifEmpty { track.title }, releaseInfo.tracks, exclude = alreadyClaimed)
+            if (trackNumber == null) trackNumber = FilenameParser.resolveTrackNumber(track)?.takeUnless { it in alreadyClaimed }
 
             val proposed = track.copy(
                 artist = chosen.artistCredit.ifEmpty { track.artist },
@@ -210,7 +242,7 @@ object ReleaseResolver {
 
         val release = mbClient.getReleaseTracklist(chosen.releaseId)
         val coverUri = if (fetchCoverArt) coverArtClient.fetchFullImage(chosen.releaseId) else null
-        val positionByPath = matchFilesToPositions(group.files, release.tracks)
+        val positionByPath = matchFilesToPositions(group.files, release.tracks, alreadyClaimed)
 
         return group.files.associate { track ->
             val position = positionByPath[track.path.value]

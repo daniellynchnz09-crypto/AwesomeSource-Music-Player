@@ -906,6 +906,55 @@ fixed unprompted, since generalizing the library-wide check into the core
 auto-apply path used for every match is a larger, riskier change than this
 specific bug report asked for.
 
+TWO FOLLOW-UP FIXES, WITH THE USER'S GO-AHEAD: the user asked to dig into the
+flagged `ReleaseResolver` gap above, plus a second, separately-reported issue -
+tracks Approved in an earlier session showing back up as Match Found in a later
+one, with what looked like the same suggestion as before.
+
+**Generalizing the position-collision fix.** `ReleaseResolver.resolveGroupToProposed`
+now takes a `TrackDao` and queries `getByMatchedReleaseId` for every OTHER track
+already matched to the candidate release (excluding the current group's own files,
+so a track being re-resolved can't block itself from reclaiming its own position).
+The resulting set is passed as `exclude` to the singleton path's
+`bestMatchingPosition` call and threaded into `matchFilesToPositions`, which now
+seeds its `usedPositions` set with it - closing the same gap `discoverAlbumSiblings`
+had, but for the regular auto-apply path used by every ordinary match, not just
+sibling detection. `matchFilesToPositions` also gained a same-group uniqueness
+check on its explicit-tag-number pass (pass 1), which never had one before either.
+
+**The real cause of "Approved tracks reverting to Match Found."** Root-caused via a
+direct database comparison rather than guessing: `OrganizeLibrary.requeryTracks`
+(the automatic re-query `bulkUpdateTrackDetails` runs after every bulk edit) never
+checked `isCurated()` at all - the exact protection `organize()`'s own scan loop
+has always had. A bulk edit applied to a selection that happened to include some
+already-Approved tracks alongside genuinely new ones was re-querying MusicBrainz
+for every one of them. A fresh search can come back with a slightly
+different-formatted candidate than whatever string was already accepted into the
+real field - different capitalization, collaborator ordering, or remix-suffix
+styling, not actually wrong - which `TrackEntity.reviewStatus()`'s
+`artistConfirmed` check then reads as a genuine disagreement, silently demoting an
+already-reviewed APPROVED track back to MATCH_FOUND. To the user this looked like
+"the same suggestion" reappearing, because it functionally is the same match, just
+a freshly-fetched string that no longer matches character-for-character. Fixed by
+filtering curated entities out of `requeryTracks` before grouping - a curated track
+has nothing left for a requery to usefully do anyway. Verified for real: bulk-edited
+an Approved Quest For Fire track's Genre field alone, confirmed the Genre change
+applied while `artist`/`proposedArtist`/`matchedReleaseId` stayed byte-for-byte
+identical and the track stayed Approved - previously this exact action would have
+silently re-triggered a MusicBrainz search for it.
+
+Along the way, a `Mr. Bill - For A Friend.mp3` row that looked like it had reverted
+to its old bad sibling-detection proposal turned out to be a red herring: an
+incomplete database pull on this end (the raw `.db` file without its `-wal`
+sidecar, which held the actual fix from the previous session) rather than a second
+real regression. Also hardened the test emulator itself while chasing this down -
+its AVD `config.ini` had `fastboot.forceFastBoot=yes` (quick-boot snapshots), and
+one boot in this session logged `Failed to load snapshot 'default_boot'`; switched
+it to `fastboot.forceColdBoot=yes` so future sessions always boot from the real
+persistent disk image rather than a potentially stale or partially-corrupt
+snapshot - unrelated to the actual bug here, but cheap insurance against the same
+kind of confusion next time.
+
 SUPERSEDED: the two prior attempts (Expo/React Native, and the original native
 Kotlin plan) have their own full write-ups - kept for the real bugs/fixes they
 found, not as active plans - in `Claude/ANDROID ARCHITECTURE - LEGACY ATTEMPTS.md`.
