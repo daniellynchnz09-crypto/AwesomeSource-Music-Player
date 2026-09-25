@@ -77,6 +77,34 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
     but its own write path wasn't separately re-verified this pass, since it shares
     the exact same `upsert`-then-recompute code path already proven by the accept
     action.
+8c. ~~Draggable right-edge scrollbar~~ - done: see ANDROID ARCHITECTURE.md's
+    "REVIEW-STATUS MODEL" section addendum for the drag-gesture-cancellation bug
+    found and fixed (a `pointerInput` key that changed mid-drag), verified with real
+    `adb shell input swipe` gestures of varying length.
+8d. ~~Investigated why the review-status stats (1368) didn't match the ~2500-file
+    library count, and fixed a real bug found along the way~~ - done: see ANDROID
+    ARCHITECTURE.md's "MISSING-FILES INVESTIGATION AND THE TAG-READ-FAILURE RECOVERY
+    FIX" section. 31 real `.m4a` files were permanently unrecoverable due to a
+    jaudiotagger parse failure with no fallback; now they fall back to sidecar/
+    filename-guessing like WAV files already did. The remaining "missing" files were
+    non-music project internals and macOS resource-fork junk, correctly excluded.
+    AIFF support was investigated and declined - the 229 `.aif`/`.aiff` files are all
+    internal `.band` (GarageBand/Logic) project assets, not real songs.
+8e. ~~High refresh rate support~~ - done: `MainActivity.requestHighRefreshRate()`.
+8f. ~~Bulk multi-select editing (long-press a track, select more, edit shared fields
+    like Artist/Album across all of them at once)~~ - done: see ANDROID
+    ARCHITECTURE.md's "BULK MULTI-SELECT EDITING" section. Verified end-to-end
+    against real tracks, including reverting the test data afterward.
+8g. ~~Wire up the existing-but-dead Gemini grounding cache table so rescans stop
+    re-spending Gemini quota on already-graded matches~~ - done: see ANDROID
+    ARCHITECTURE.md's "GEMINI GROUNDING CACHE WIRED UP" section. Compiles and unit-
+    tests pass; not yet re-verified against a live cache hit (blocked on completing
+    a full rescan - see the "TWO REAL MISTAKES" section for why one didn't finish
+    cleanly this pass).
+8h. A pre-existing gap noticed while testing 8f, not yet fixed: the system back
+    button from the track detail screen exits the app entirely instead of returning
+    to the Library list, since dismissal is only wired to the screen's own in-app
+    back arrow.
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
    needs to be built once playback (Media3/ExoPlayer) is wired up.
 10. The design pass (Neo-Aero/Dark-Aero/skeuomorphic per Claude/App DESIGN.md) is

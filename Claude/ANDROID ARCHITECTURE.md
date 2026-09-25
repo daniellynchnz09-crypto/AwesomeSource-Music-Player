@@ -1,11 +1,14 @@
 ANDROID ARCHITECTURE:
 This document captures the technical architecture decisions for the Android music
-player. History so far: native Kotlin (original plan) -> Expo/React Native (to reuse
-the user's existing Expo Go workflow and avoid a local Android Studio install) ->
-back to native Kotlin (this section), after the user decided to install Android
-Studio after all. Update this document as decisions change, per Claude.md's
-instruction to keep planning docs current - note superseded decisions rather than
-silently deleting them (see "SUPERSEDED" below, which now holds two prior attempts).
+player, focused on the current, living implementation (native Kotlin). History so
+far: native Kotlin (original plan) -> Expo/React Native (to reuse the user's
+existing Expo Go workflow and avoid a local Android Studio install) -> back to
+native Kotlin (this document), after the user decided to install Android Studio
+after all. Update this document as decisions change, per Claude.md's instruction to
+keep planning docs current. The two superseded attempts' full write-ups (kept for
+the real bugs/fixes they found, not as active plans) live in a separate document,
+`Claude/ANDROID ARCHITECTURE - LEGACY ATTEMPTS.md`, so this one stays focused on
+what's actually true right now rather than growing indefinitely.
 
 CURRENT STACK: Native Android (Kotlin + Jetpack Compose + Media3/ExoPlayer + Room)
 
@@ -282,6 +285,136 @@ than naively marking anything accepted as fully approved. Screenshots in
 `match_found_filter_isolated.png`, `proposed_match_draft_card.png`,
 `proposed_match_accepted.png`, `track_detail_edit_screen.png`.
 
+MISSING-FILES INVESTIGATION AND THE TAG-READ-FAILURE RECOVERY FIX: the user noticed
+the review-status stats (505+432+25+406=1368) didn't add up to the ~2500 files
+reportedly copied to the SD card, and asked what happened to the rest. Investigated
+for real via `adb shell find`/extension counts rather than guessing: of 2549 total
+files, ~750 were never music at all (Logic Pro/GarageBand `.exs`/`.pkf`/`.band`
+project internals, images, `.plist`/`.mov`/`.pdf`), ~440 more were hidden macOS
+"AppleDouble" resource-fork siblings (e.g. `._Track.m4a`) that `Scanner` already
+correctly skips, and 229 were real `.aif`/`.aiff` audio that `Scanner.AUDIO_EXTENSIONS`
+doesn't recognize - inspecting their actual paths showed every one lived inside a
+`.band` package (`Clicky Ting.band/Freeze Files.nosync/...`, `.../Media/Sampler/
+Sampler Files/Bark.aif`) - frozen stems and sampler one-shots, not finished tracks -
+so the user declined AIFF support rather than polluting the library with fragments
+named things like "Bark.aif". The remaining 1368 candidate files (634 m4a + 598 mp3 +
+136 wav) matched the database's row count and the user's stats exactly - nothing was
+silently lost by the app for those.
+
+The one real bug found along the way: 31 of the 634 real `.m4a` candidates (a genuine
+orchestral/nature-sounds album, "Orch music/26 Australasian Harrier.m4a" etc.) failed
+`jaudiotagger`'s tag parser with "Unable to determine start of audio in file", and
+`resolveInitialMetadata`'s `Unreadable` branch marked them `FileStatus.UNREADABLE`
+with no fallback at all - worse, `OrganizeLibrary.organize()` then filtered
+`FileStatus.UNREADABLE` tracks out of `AlbumGrouper.groupIntoAlbums` entirely, so
+these 31 tracks could never be matched, ever, no matter how many times the library
+was rescanned. Fixed by extracting `resolveFromSidecarOrFilename()` (previously only
+reached by the `UnsupportedFormat`/WAV path) and routing the `Unreadable` case through
+it too, preserving the original read error in `statusDetail` for diagnostics - a
+file's *path* is still perfectly readable even when its embedded tags aren't, so a
+filename guess can still recover it and let it proceed to MusicBrainz querying like
+any other track. The now-dead `readable = tracks.filter { it.status != UNREADABLE }`
+line was removed since nothing sets that status anymore. Verified for real: after the
+fix, a rescan showed zero `UNREADABLE` rows and the previously-stranded Australasian
+Harrier track correctly reached `INSUFFICIENT_INFO` ("no usable artist to search
+with" - the file genuinely has no artist tag and none of its siblings do either, so
+this is honest, recoverable-by-the-user information now instead of a permanent dead
+end).
+
+HIGH REFRESH RATE SUPPORT: `MainActivity.requestHighRefreshRate()` asks the display
+for its highest-refresh-rate mode at the *same* physical resolution the device is
+already using (never a different resolution) - added because several OEMs don't
+automatically opt an app into >60Hz just because the hardware supports it; the
+framework only switches to whichever mode the window explicitly requests. Guarded by
+`Build.VERSION.SDK_INT >= VERSION_CODES.R` for the non-deprecated `Activity.display`
+API, falling back to the deprecated `windowManager.defaultDisplay` below that.
+
+BULK MULTI-SELECT EDITING: per the user's suggestion ("select a group of tracks and
+give them all the same album"), `LibraryScreen` gained a long-press-to-select mode
+(`combinedClickable(onClick, onLongClick)` on `TrackRow`) - long-pressing any row
+enters selection mode (top bar swaps to "N selected" with a clear/close action and an
+edit action); while active, a plain tap toggles a row's selection instead of opening
+its detail screen. The edit action opens `BulkEditDialog` with Artist/Album Artist/
+Album/Genre/Composer/Year fields, all starting blank. `MainViewModel.bulkUpdateTrackDetails`
+applies *only* the fields the user actually typed into, per field, across every
+selected track - a blank field means "don't touch this field on any track", not
+"clear it", which is the opposite of `updateTrackDetails`'s single-track form (always
+pre-filled with current values, so every field is an explicit choice there). This
+distinction matters because a bulk selection's tracks may already disagree on a field
+the user isn't trying to change. Verified for real: selected two tracks ("Ratata",
+"Tears"), set Artist="TestArtist" and Album Artist="TestAlbum" (nothing else), saved,
+and confirmed via a direct database pull that both tracks got exactly those two
+fields updated with `source=MANUAL_ENTRY`, their `title`/`album` fields were left
+alone, and a third, unselected track ("Leave Me like This") was completely untouched
+- then reverted the test values back to null before leaving the library in its real
+state. Screenshots: `bulk_edit_multiselect.png`, `bulk_edit_dialog.png`,
+`bulk_edit_applied.png`. A pre-existing, unrelated gap noticed while testing this
+(not fixed): the system back button from `TrackDetailScreen` exits the app entirely
+instead of returning to `LibraryScreen`, since dismissal is only wired to the
+screen's own in-app back arrow, not to `OnBackPressedDispatcher` - worth fixing
+before this ships, but out of scope for this pass.
+
+GEMINI GROUNDING CACHE WIRED UP (an existing but previously-dead table): the user
+asked why a rescan of an already-organized library felt much faster than the
+original desktop tool, and whether that meant heavier Gemini usage. Investigated the
+actual code rather than guessing: the speedup is entirely `QueryGroup.cachedOrSearch()`
+serving MusicBrainz results from the persisted `mb_query_cache` table instead of
+making live, rate-limited network calls, since a rescan of unchanged files
+re-derives identical search keys. Gemini grounding, by contrast, had a
+`gemini_grounding_cache` table and `QueryCacheDao.getCachedGeminiResponse`/
+`setCachedGeminiResponse` methods already defined in the schema, but nothing in the
+pipeline ever called them - every rescan re-spent Gemini quota re-asking questions it
+had already gotten answers to. Fixed by wiring `GeminiGroundingClient` up to an
+optional `QueryCacheDao`: the cache key is built from the local evidence plus the
+*set* of candidate MusicBrainz IDs offered (sorted, so it's order-independent), and
+the cached value stores the chosen candidate's stable MBID rather than its list
+index - caching by index would silently point at the wrong candidate if MusicBrainz
+ever re-ranks the same release set differently on a later run. `OrganizeLibrary` now
+constructs `GeminiGroundingClient(options.geminiApiKey, queryCacheDao = db.queryCacheDao())`.
+Not yet re-verified against a live cache hit in this session (see the rescan
+incidents below for why), but compiles and unit-tests clean and mirrors the already-
+proven MusicBrainz caching pattern exactly.
+
+TWO REAL MISTAKES MADE WHILE RE-SCANNING TO PICK UP THE M4A FIX (both caught and
+fixed, recorded so they aren't repeated):
+1. Re-picking the SD card folder through the SAF picker landed one level deeper than
+   the original scan's root (`SDCARD > Music > Music` instead of `SDCARD > Music`),
+   producing a completely different `LibraryPath` prefix for every file (`EDM/...`
+   instead of `Music/EDM/...`). Since `TrackEntity.path` is the primary key, this
+   didn't *update* the existing 1368 rows via upsert - it silently *added* a second,
+   parallel copy of the entire library (2736 total rows) under different keys.
+   Caught by noticing the total was exactly double the expected count; fixed by
+   pulling the database, deleting every row whose path still had the stale `Music/`
+   prefix (`DELETE FROM tracks WHERE path LIKE 'Music/%'`, plus the matching
+   `track_artist_credits` rows), and pushing the cleaned file back. Lesson: when
+   re-picking a SAF folder to match a previous scan, verify the resulting
+   `rootFoldersJson` in `scan_sessions` matches the original exactly before trusting
+   upsert to dedupe - a folder tree that *looks* the same one level up or down
+   produces silently divergent primary keys, not an error.
+2. After editing `LibraryScreen.kt`/`GeminiGroundingClient.kt`/`OrganizeLibrary.kt`,
+   `./gradlew compileDebugKotlin testDebugUnitTest` was run to verify the changes
+   (correctly reporting success) but `assembleDebug` was not re-run, so the APK
+   actually installed on the emulator for the next several steps - including a long
+   rescan and an attempt to verify the bulk-edit UI - still predated all three
+   changes. This surfaced as: the bulk-edit long-press appeared not to work at all
+   (real `adb shell input swipe`-based long-press testing produced a normal click
+   every time inside the app, while the identical command reliably triggered the
+   *system launcher's* long-press context menu - a strong signal something was off,
+   confirmed conclusively by `uiautomator dump` showing zero `long-clickable="true"`
+   track rows in the accessibility tree). Lesson: `compileDebugKotlin` verifies the
+   Kotlin compiles; only `assembleDebug` (or a task that depends on it) actually
+   repackages the installable APK - always rebuild with `assembleDebug` before
+   reinstalling to test a UI change, not just the faster compile-only task.
+   Separately, mid-rescan the app was observed sitting at 0% CPU with no status-count
+   progress for many minutes despite the emulator having working network
+   connectivity (`ping` succeeded to both `8.8.8.8` and `musicbrainz.org`, if with
+   unusually high ~400-500ms latency) - force-stopped as a precaution rather than
+   left to run indefinitely; by the time of the cleanup pull, every track already had
+   a final, non-transitional status, so nothing was actually lost, but whether the
+   pipeline was genuinely deadlocked or just caught mid rate-limit-`delay()` in a 0%-
+   CPU instant was never conclusively determined - worth watching for on a future
+   large rescan.
+
 LESSONS TO CARRY FORWARD FROM THE EXPO ATTEMPT (found and verified for real during
 that pass - see `legacy-expo-attempt/README.md` for the source files; re-verify
 each since time may have passed, but don't reintroduce bugs already found once):
@@ -362,145 +495,6 @@ the React Native situation, but still needs a real device/build loop to verify
 rather than being written blind. Recommended: spike this once the new Kotlin
 project can actually build and run.
 
-SUPERSEDED (most recent first):
-
---- Attempt 2: Expo/React Native ---
-
-Framework: Expo + React Native, not native Kotlin. The user already ran Expo on
-their phone and wanted to reuse that workflow rather than install Android Studio.
-The concrete path used: a custom Expo "dev client" (not the stock Expo Go app,
-which can't include the custom native modules this app needed) built via EAS
-Build, which compiles in Expo's cloud - so no local Android Studio/JDK/SDK install
-was needed at any point. This got as far as a working organization pipeline, a
-basic Setup/Library/Settings UI, and one successful EAS Build dev-client install,
-before the user decided to switch back to native Android Studio after all. Full
-source preserved at `legacy-expo-attempt/` (see its README for the specific bugs
-found and fixed during this attempt, carried forward into the "LESSONS TO CARRY
-FORWARD" section above).
-
-Background playback / lock-screen / notification controls: `expo-audio` (Expo's
-own first-party module), not `react-native-track-player`. This was a real finding,
-not a preference call: `expo-doctor` flagged `react-native-track-player` (the
-initially-installed choice) as unsupported on React Native's New Architecture, and
-research confirmed its stable release line (4.x) predates New Architecture support -
-the rewrite that adds it (5.0.0-alpha0) is still alpha. `expo-audio` supports
-background playback and lock-screen/notification controls natively (Android needs
-`setActiveForLockScreen`; the config plugin is set with
-`enableBackgroundPlayback: true` in `app.json`) and is New Architecture-native by
-construction, avoiding a third-party compatibility gamble for the app's most
-safety-critical feature (audio dying mid-playback). Trade-off: `expo-audio` is a
-lower-level primitive than track-player's built-in queue management, so playlist/queue
-logic (up next, add-to-queue-front/back) would have needed to be built at the app
-layer on top of it.
-
-Organization pipeline: TypeScript, ported a second time from the same Python
-original. Used `fuzzball` (an actual npm port of the fuzzywuzzy/rapidfuzz family)
-for fuzzy string matching, rather than a hand-rolled reimplementation - a real
-improvement over the Kotlin attempt, where no such library existed and the scoring
-logic had to reimplement WRatio/token_set_ratio/token_sort_ratio from scratch with
-an explicit "needs recalibration" caveat. The fuzzball-based port's ported test
-suite passed 58/58 with the *original* thresholds unchanged (AUTO_APPLY_THRESHOLD=90,
-NEEDS_REVIEW_THRESHOLD=60, AUTO_APPLY_MARGIN=10) - no recalibration needed, unlike
-the Kotlin attempt.
-
-Persistence: `expo-sqlite` (SQLite, same shape as the Python original's schema).
-
-Secrets (Gemini/AcoustID API keys, MusicBrainz contact string): `expo-secure-store`
-(Keystore-backed encrypted storage on Android), mirroring the native plan's
-`SecureSettings` design.
-
-File access: `expo-document-picker` + `expo-file-system` (SAF-backed, persistable
-URI permissions) in place of native Storage Access Framework calls.
-
-VERIFIED DURING THIS ATTEMPT (Node/npm had real registry access, unlike the native
-Android toolchain during the first attempt, which had none - so this pass could
-actually install real dependencies and run real checks, not just write unverified
-source):
-- `npm install` / `npx expo install` - real dependency resolution, including
-  discovering and fixing real compatibility issues (the New Architecture
-  incompatibility above, a missing `expo-asset` peer dependency, and later a
-  missing `expo-font` peer dependency of `@expo/vector-icons` that `expo-doctor`
-  caught before it could crash a build).
-- `npx tsc --noEmit` - passed with zero errors across the whole project.
-- `npx jest` - the ported test suites (Scorer, FilenameParser, AlbumGrouper,
-  EdmCreditParser - 58 tests total) all passed for real, against the real fuzzball
-  library, using the Python original's unmodified thresholds.
-- `npx expo-doctor` - 21/21 checks passed.
-- `npx expo export --platform android` - a real Metro bundle (1352-1579 modules
-  depending on when it was run) with zero resolution errors.
-- A real EAS Build cloud build succeeded and produced an installable Android dev
-  client APK, linked to the user's own EAS account/project
-  (`kringlepringles-team/awesomesource-media-player`).
-
-CURRENT STATE AT THE TIME OF THE SWITCH BACK: `legacy-expo-attempt/` holds the full
-scaffold (`package.json`, `app.json`, `tsconfig.json`, `babel.config.js`, `eas.json`),
-a working Expo Router UI (`app/index.tsx` "Setup" first-run screen, `app/library.tsx`
-returning-user track list, `app/settings.tsx`, `src/components/ProgressBar.tsx` - a
-unified, per-phase-colored progress bar with a percentage readout), and the full
-`src/organize/` pipeline described in its README. `NOT YET STARTED` at the point of
-the switch: library auto-separation (classical vs. EDM classifier), the Flagged
-review queue UI, actual playback wiring via `expo-audio`, writing corrected tags
-back into files, and the visual design pass (Neo-Aero/Dark-Aero/skeuomorphic per
-Claude/App DESIGN.md).
-
-A note on one non-technical wrinkle from this attempt worth remembering: installing
-new native dependencies (e.g. `@expo/vector-icons`, `expo-dev-client`, `expo-font`)
-while a Metro dev server is already running left it with a stale module-resolution
-cache, producing "Unable to resolve" errors for files that genuinely existed on
-disk. Fix was always the same: stop the dev server (on Windows, its child `node.exe`
-sometimes survives the parent shell being killed and keeps holding the port - check
-with `Get-NetTCPConnection`/`Stop-Process` if a restart claims the port is still in
-use) and restart with `--clear`. Worth remembering for any future dev-server-plus-
-package-manager workflow, not just this one.
-
---- Attempt 1: Native Android (Kotlin), original plan ---
-
-Framework/UI: Kotlin, Jetpack Compose (declarative UI fits the many themeable/
-animated screens in Claude/Design.md better than XML views).
-
-Playback: Media3 (`androidx.media3`) - `ExoPlayer` for playback,
-`MediaSessionService` for background playback, lock-screen/notification controls,
-and external device (headset/Bluetooth) button handling. This is the standard,
-actively-maintained successor to `ExoPlayer`+`MediaSessionCompat` and is built
-specifically for the "plays in the background, controllable from lock
-screen/notification/external devices" requirement in Claude/Design.md.
-
-Local storage: Room (SQLite) for the library database (tracks, albums, artists,
-playlists, libraries, likes, ratings, play history, queue state, undo log, MB/Gemini
-query caches) - a direct architectural descendant of
-`legacy-desktop-tagger/musictagger/persistence/db.py`, same undo-log pattern.
-
-File access: Storage Access Framework (`ACTION_OPEN_DOCUMENT_TREE`) to let the user
-pick their music folder(s) once and retain persistent URI permissions - required on
-modern Android instead of raw filesystem paths.
-
-Tag reading/writing: needs a JVM/Android tagging library spike early (candidates:
-`jaudiotagger`, or `MediaMetadataRetriever` + a writer-capable library for ID3/MP4/
-Vorbis atoms). This replaces `mutagen`.
-
-Networking: Retrofit/OkHttp for MusicBrainz, Cover Art Archive, Gemini API, and
-AcoustID calls.
-
-Fuzzy matching: no direct `rapidfuzz` equivalent on Android was found at the time -
-the plan was to port the specific algorithms actually used (Levenshtein-based
-WRatio/token_set_ratio/token_sort_ratio) or adopt a JVM fuzzy-string library with
-equivalent primitives. (The Expo attempt later found `fuzzball`, a real npm port of
-the same family, for the TypeScript side - worth checking whether an equivalent
-real, maintained JVM port exists now before reimplementing from scratch again.)
-
-Audio fingerprinting: Chromaprint via a JNI/native build for Android (or an existing
-Android-compatible wrapper) + the AcoustID web API for lookup - still the plan, see
-"CHROMAPRINT FINGERPRINT GENERATION" above.
-
-Visualizer: Media3's audio processing / `Visualizer` (`android.media.audiofx`) for
-FFT/beat data, rendered in Compose (Canvas) for the pulsing-album-art effect; the
-lock-screen and screen-edge-overlay variants will need `SYSTEM_ALERT_WINDOW`
-(overlay) permission - flag this to the user before implementing, since it's a
-sensitive permission Play Store treats carefully (moot if sideloaded only, but worth
-confirming distribution method later).
-
-This attempt got as far as project scaffolding and ported (but never
-build-verified, since the toolchain wasn't available in that session) Kotlin
-versions of the scorer, filename parser, EDM credit parser, and album grouper, with
-JUnit test ports. Preserved at `legacy-android-native-attempt/` (see its README) -
-still a useful reference alongside the TypeScript version in `legacy-expo-attempt/`.
+SUPERSEDED: the two prior attempts (Expo/React Native, and the original native
+Kotlin plan) have their own full write-ups - kept for the real bugs/fixes they
+found, not as active plans - in `Claude/ANDROID ARCHITECTURE - LEGACY ATTEMPTS.md`.

@@ -74,12 +74,11 @@ class OrganizeLibrary(private val context: Context) {
             options.onProgress?.invoke(Progress(Phase.READING_TAGS, i + 1, bareFiles.size))
         }
 
-        val readable = tracks.filter { it.status != FileStatus.UNREADABLE }
-        val groups = AlbumGrouper.groupIntoAlbums(readable)
+        val groups = AlbumGrouper.groupIntoAlbums(tracks)
         options.onProgress?.invoke(Progress(Phase.GROUPING, groups.size, groups.size))
 
         val mbClient = MusicBrainzClient(options.musicBrainzContact)
-        val geminiClient = GeminiGroundingClient(options.geminiApiKey)
+        val geminiClient = GeminiGroundingClient(options.geminiApiKey, queryCacheDao = db.queryCacheDao())
         val queryGroup = QueryGroup(mbClient, coverArtClient, db.queryCacheDao())
         for ((i, group) in groups.withIndex()) {
             processGroup(queryGroup, geminiClient, group)
@@ -91,9 +90,14 @@ class OrganizeLibrary(private val context: Context) {
 
     /** Reads embedded tags when the format supports them; falls back to sidecar
      * metadata (WAV etc. - Claude/MUSIC ORGANIZATION.md's "list document" concept)
-     * or a filename guess otherwise. One corrupt/unsupported file can't crash the
-     * whole scan - it's marked Unreadable and skipped, matching the Python
-     * original's rule. */
+     * or a filename guess otherwise. A tag-read failure (corrupt/malformed embedded
+     * tags - e.g. jaudiotagger's "Unable to determine start of audio in file" on
+     * some M4As) gets the exact same fallback rather than being permanently
+     * stranded as unreadable: the file's *path* is still perfectly readable even
+     * when its embedded tags aren't, so a filename guess can still recover it and
+     * let it proceed to MusicBrainz querying like any other track. One corrupt file
+     * still can't crash the whole scan, matching the Python original's rule - it
+     * just no longer means "give up on this file forever". */
     private suspend fun resolveInitialMetadata(bare: TrackMetadata, libraryType: LibraryType?): TrackMetadata {
         when (val outcome = tagReader.readTags(bare.uri, bare.path)) {
             is AudioTagReader.Outcome.Ok -> {
@@ -120,44 +124,56 @@ class OrganizeLibrary(private val context: Context) {
                 )
             }
             is AudioTagReader.Outcome.Unreadable -> {
-                return bare.copy(libraryType = libraryType, status = FileStatus.UNREADABLE, statusDetail = outcome.error)
+                return resolveFromSidecarOrFilename(bare, libraryType, readError = outcome.error)
             }
             AudioTagReader.Outcome.UnsupportedFormat -> {
-                // WAV/OGG-without-tag-support: sidecar metadata first, then a
-                // filename guess.
-                val sidecar = db.sidecarMetadataDao().getByPath(bare.path.value)
-                if (sidecar != null) {
-                    return bare.copy(
-                        artist = sidecar.artist,
-                        albumArtist = sidecar.albumArtist,
-                        album = sidecar.album,
-                        title = sidecar.title,
-                        trackNumber = sidecar.trackNumber,
-                        year = sidecar.year,
-                        genre = sidecar.genre,
-                        composer = sidecar.composer,
-                        hasCoverArt = sidecar.coverArtUri != null,
-                        libraryType = libraryType,
-                        source = MetadataSource.EMBEDDED_TAGS,
-                        status = FileStatus.TAGS_READ,
-                    )
-                }
-
-                val guess = FilenameParser.parseFilename(bare.path)
-                return bare.copy(
-                    artist = guess.artist,
-                    album = guess.album,
-                    title = guess.title,
-                    trackNumber = guess.trackNumber,
-                    libraryType = libraryType,
-                    source = MetadataSource.FILENAME_GUESS,
-                    status = if (guess.confidence == FilenameParser.Confidence.STRUCTURED) FileStatus.PENDING else FileStatus.INSUFFICIENT_INFO,
-                    statusDetail = if (guess.confidence == FilenameParser.Confidence.LOOSE) {
-                        "loose filename guess: ${guess.searchText ?: "(no usable text)"}"
-                    } else "",
-                )
+                return resolveFromSidecarOrFilename(bare, libraryType, readError = null)
             }
         }
+    }
+
+    /** Sidecar metadata first, then a filename guess - shared by the
+     * unsupported-format (WAV/OGG-without-tag-support) and tag-read-failure paths.
+     * `readError` (non-null only for the latter) is preserved in `statusDetail` for
+     * diagnostics even when a filename guess successfully recovers the track. */
+    private suspend fun resolveFromSidecarOrFilename(bare: TrackMetadata, libraryType: LibraryType?, readError: String?): TrackMetadata {
+        val sidecar = db.sidecarMetadataDao().getByPath(bare.path.value)
+        if (sidecar != null) {
+            return bare.copy(
+                artist = sidecar.artist,
+                albumArtist = sidecar.albumArtist,
+                album = sidecar.album,
+                title = sidecar.title,
+                trackNumber = sidecar.trackNumber,
+                year = sidecar.year,
+                genre = sidecar.genre,
+                composer = sidecar.composer,
+                hasCoverArt = sidecar.coverArtUri != null,
+                libraryType = libraryType,
+                source = MetadataSource.EMBEDDED_TAGS,
+                status = FileStatus.TAGS_READ,
+                statusDetail = readError?.let { "tag read failed ($it); used sidecar metadata" } ?: "",
+            )
+        }
+
+        val guess = FilenameParser.parseFilename(bare.path)
+        val guessDetail = if (guess.confidence == FilenameParser.Confidence.LOOSE) {
+            "loose filename guess: ${guess.searchText ?: "(no usable text)"}"
+        } else ""
+        return bare.copy(
+            artist = guess.artist,
+            album = guess.album,
+            title = guess.title,
+            trackNumber = guess.trackNumber,
+            libraryType = libraryType,
+            source = MetadataSource.FILENAME_GUESS,
+            status = if (guess.confidence == FilenameParser.Confidence.STRUCTURED) FileStatus.PENDING else FileStatus.INSUFFICIENT_INFO,
+            statusDetail = when {
+                readError != null && guessDetail.isNotEmpty() -> "tag read failed ($readError); $guessDetail"
+                readError != null -> "tag read failed ($readError); used filename guess"
+                else -> guessDetail
+            },
+        )
     }
 
     private suspend fun processGroup(queryGroup: QueryGroup, geminiClient: GeminiGroundingClient, group: AlbumGroup) {

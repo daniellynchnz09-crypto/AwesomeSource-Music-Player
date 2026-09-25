@@ -2,9 +2,11 @@ package com.mslynch.awesomesource.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
@@ -19,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,8 +30,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -74,7 +80,7 @@ import kotlin.math.roundToInt
  * screen requested on top of that original design. Shown once
  * [MainViewModel.trackCount] is non-zero; [SetupScreen] handles the first run.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
     val selectedPath = viewModel.selectedTrackPath
@@ -102,16 +108,42 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
     }
     val listState = rememberLazyListState()
 
+    // Long-pressing a row enters selection mode (per the "select multiple entries
+    // and edit their details in bulk" request); a plain tap then toggles selection
+    // instead of opening the detail screen, until every row is deselected again.
+    var selectedPaths by remember { mutableStateOf(setOf<String>()) }
+    var showBulkEditDialog by remember { mutableStateOf(false) }
+
+    fun toggleSelection(path: String) {
+        selectedPaths = if (path in selectedPaths) selectedPaths - path else selectedPaths + path
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Library") },
-                actions = {
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "Settings")
-                    }
-                },
-            )
+            if (selectedPaths.isNotEmpty()) {
+                TopAppBar(
+                    title = { Text("${selectedPaths.size} selected") },
+                    navigationIcon = {
+                        IconButton(onClick = { selectedPaths = emptySet() }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear selection")
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { showBulkEditDialog = true }) {
+                            Icon(Icons.Filled.Edit, contentDescription = "Edit selected tracks")
+                        }
+                    },
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("Library") },
+                    actions = {
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(Icons.Filled.Settings, contentDescription = "Settings")
+                        }
+                    },
+                )
+            }
         },
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
@@ -161,7 +193,15 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                         items(filtered, key = { it.path }) { track ->
-                            TrackRow(track, onClick = { viewModel.selectTrack(track.path) })
+                            TrackRow(
+                                track,
+                                selected = track.path in selectedPaths,
+                                inSelectionMode = selectedPaths.isNotEmpty(),
+                                onClick = {
+                                    if (selectedPaths.isNotEmpty()) toggleSelection(track.path) else viewModel.selectTrack(track.path)
+                                },
+                                onLongClick = { toggleSelection(track.path) },
+                            )
                         }
                     }
                     TrackScrollbar(listState, modifier = Modifier.align(Alignment.CenterEnd))
@@ -169,6 +209,69 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
             }
         }
     }
+
+    if (showBulkEditDialog) {
+        BulkEditDialog(
+            trackCount = selectedPaths.size,
+            onDismiss = { showBulkEditDialog = false },
+            onSave = { artist, albumArtist, album, genre, composer, year ->
+                viewModel.bulkUpdateTrackDetails(selectedPaths, artist, albumArtist, album, genre, composer, year)
+                showBulkEditDialog = false
+                selectedPaths = emptySet()
+            },
+        )
+    }
+}
+
+/** Every field starts blank and stays optional - see [MainViewModel.bulkUpdateTrackDetails]'s
+ * doc comment for why a blank field must mean "leave this track's value alone" here,
+ * unlike the single-track edit form. */
+@Composable
+private fun BulkEditDialog(
+    trackCount: Int,
+    onDismiss: () -> Unit,
+    onSave: (artist: String?, albumArtist: String?, album: String?, genre: String?, composer: String?, year: Int?) -> Unit,
+) {
+    var artist by remember { mutableStateOf("") }
+    var albumArtist by remember { mutableStateOf("") }
+    var album by remember { mutableStateOf("") }
+    var genre by remember { mutableStateOf("") }
+    var composer by remember { mutableStateOf("") }
+    var yearText by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit $trackCount tracks") },
+        text = {
+            Column {
+                Text(
+                    "Only fields you fill in will be changed - the rest are left as-is on every selected track.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                OutlinedTextField(artist, { artist = it }, label = { Text("Artist") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(albumArtist, { albumArtist = it }, label = { Text("Album Artist") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(album, { album = it }, label = { Text("Album") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(genre, { genre = it }, label = { Text("Genre") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(composer, { composer = it }, label = { Text("Composer") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(yearText, { yearText = it }, label = { Text("Year") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onSave(
+                    artist.ifBlank { null },
+                    albumArtist.ifBlank { null },
+                    album.ifBlank { null },
+                    genre.ifBlank { null },
+                    composer.ifBlank { null },
+                    yearText.toIntOrNull(),
+                )
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 private fun matchesSearch(track: TrackEntity, query: String, field: SearchField): Boolean {
@@ -368,40 +471,55 @@ private fun TrackScrollbar(listState: androidx.compose.foundation.lazy.LazyListS
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TrackRow(track: TrackEntity, onClick: () -> Unit) {
-    Column(
+private fun TrackRow(track: TrackEntity, selected: Boolean, inSelectionMode: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+    Row(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            track.title ?: track.path.substringAfterLast('/'),
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        val subtitle = buildString {
-            append(track.artist ?: "(no artist)")
-            if (!track.album.isNullOrEmpty()) append(" — ${track.album}")
+        if (inSelectionMode) {
+            Box(
+                Modifier
+                    .padding(end = 12.dp)
+                    .size(24.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp)),
+            )
         }
-        Text(subtitle, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        val reviewStatus = track.reviewStatus()
-        Text(
-            reviewStatusLabel(reviewStatus),
-            style = MaterialTheme.typography.labelSmall,
-            color = reviewStatusColor(reviewStatus),
-            fontWeight = FontWeight.SemiBold,
-        )
-        if (track.statusDetail.isNotEmpty()) {
+        Column(Modifier.weight(1f)) {
             Text(
-                track.statusDetail,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
+                track.title ?: track.path.substringAfterLast('/'),
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            val subtitle = buildString {
+                append(track.artist ?: "(no artist)")
+                if (!track.album.isNullOrEmpty()) append(" — ${track.album}")
+            }
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            val reviewStatus = track.reviewStatus()
+            Text(
+                reviewStatusLabel(reviewStatus),
+                style = MaterialTheme.typography.labelSmall,
+                color = reviewStatusColor(reviewStatus),
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (track.statusDetail.isNotEmpty()) {
+                Text(
+                    track.statusDetail,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
     HorizontalDivider()

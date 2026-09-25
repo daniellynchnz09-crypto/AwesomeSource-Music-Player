@@ -1,10 +1,14 @@
 package com.mslynch.awesomesource.organize.metadata
 
 import com.mslynch.awesomesource.organize.model.MbCandidate
+import com.mslynch.awesomesource.organize.persistence.dao.QueryCacheDao
+import com.mslynch.awesomesource.organize.persistence.entity.GeminiGroundingCacheEntity
+import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import java.time.Instant
 
 /**
  * Implements the "LLM double-check" pass from Claude/MUSIC ORGANIZATION.md: "if I
@@ -28,11 +32,22 @@ import retrofit2.converter.moshi.MoshiConverterFactory
  * during the Expo/TypeScript attempt, which named `gemini-3.6-flash` as the
  * replacement) - Gemini model names get retired periodically; check
  * https://ai.google.dev/gemini-api/docs/models if this 404s again later.
- */
+ *
+ * [queryCacheDao] (when provided) mirrors [com.mslynch.awesomesource.organize.pipeline.QueryGroup]'s
+ * own MusicBrainz caching: `gemini_grounding_cache` and its DAO methods already
+ * existed in the schema but were never actually called from anywhere, so every
+ * rescan of an already-organized library was re-spending Gemini quota re-asking
+ * the exact same question it had already gotten an answer to. The cache key is
+ * built from the local evidence plus the *set* of candidate MBIDs offered (order-
+ * independent), and the cached value stores the chosen candidate's stable MBID
+ * rather than its list index - an index would silently point at the wrong
+ * candidate if MusicBrainz ever re-ranks the same release set differently on a
+ * later run. */
 class GeminiGroundingClient(
     private val apiKey: String?,
     private val model: String = "gemini-3.6-flash",
     okHttpClient: OkHttpClient = OkHttpClient(),
+    private val queryCacheDao: QueryCacheDao? = null,
 ) {
     data class LocalEvidence(
         val artist: String?,
@@ -45,8 +60,12 @@ class GeminiGroundingClient(
 
     data class Verdict(val chosen: MbCandidate?, val confident: Boolean, val reasoning: String)
 
+    @JsonClass(generateAdapter = true)
+    data class CachedVerdict(val chosenId: String?, val confident: Boolean, val reasoning: String)
+
     private val moshi = Moshi.Builder().build()
     private val verdictAdapter = moshi.adapter(GroundingVerdict::class.java)
+    private val cachedVerdictAdapter = moshi.adapter(CachedVerdict::class.java)
 
     private val api: GeminiApi = Retrofit.Builder()
         .baseUrl("https://generativelanguage.googleapis.com/v1beta/")
@@ -62,6 +81,14 @@ class GeminiGroundingClient(
         val key = apiKey ?: return null
         if (candidates.isEmpty()) return null
 
+        val cacheKey = cacheKey(local, candidates)
+        queryCacheDao?.getCachedGeminiResponse(cacheKey)?.let { cachedJson ->
+            val cached = runCatching { cachedVerdictAdapter.fromJson(cachedJson) }.getOrNull()
+            if (cached != null) {
+                return Verdict(candidates.firstOrNull { it.releaseId == cached.chosenId }, cached.confident, cached.reasoning)
+            }
+        }
+
         val prompt = buildPrompt(local, candidates)
         val request = GeminiGenerateContentRequest(
             contents = listOf(GeminiContent(parts = listOf(GeminiPart(prompt)))),
@@ -72,7 +99,21 @@ class GeminiGroundingClient(
         val verdict = runCatching { verdictAdapter.fromJson(text) }.getOrNull() ?: return null
 
         val chosen = verdict.chosenIndex?.let { index -> candidates.getOrNull(index) }
+        queryCacheDao?.setCachedGeminiResponse(
+            GeminiGroundingCacheEntity(
+                queryKey = cacheKey,
+                responseJson = cachedVerdictAdapter.toJson(CachedVerdict(chosen?.releaseId, verdict.confident, verdict.reasoning)),
+                cachedAt = Instant.now().toString(),
+            )
+        )
         return Verdict(chosen, verdict.confident, verdict.reasoning)
+    }
+
+    private fun cacheKey(local: LocalEvidence, candidates: List<MbCandidate>): String {
+        val localPart = listOf(local.artist, local.album, local.title, local.trackCount?.toString(), local.year?.toString())
+            .joinToString("|") { (it ?: "").trim().lowercase() }
+        val candidatesPart = candidates.map { it.releaseId }.sorted().joinToString(",")
+        return "$localPart::$candidatesPart"
     }
 
     private fun buildPrompt(local: LocalEvidence, candidates: List<MbCandidate>): String {

@@ -1,5 +1,6 @@
 package com.mslynch.awesomesource
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -31,9 +32,28 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        requestHighRefreshRate()
         setContent {
             AwesomeSourceApp()
         }
+    }
+
+    /** Many OEMs (Samsung in particular) don't opt an app into >60Hz just because
+     * the device supports it - the framework picks whichever display mode the
+     * window explicitly asks for. Scrolling a long library list (see
+     * `LibraryScreen`'s track list/scrollbar) is exactly the kind of content that
+     * benefits from this, so this asks for the highest refresh rate available at
+     * the display's current resolution, same physical mode group only (never a
+     * different resolution) so nothing else about rendering changes. */
+    private fun requestHighRefreshRate() {
+        val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) display else windowManager?.defaultDisplay
+        val currentMode = display?.mode ?: return
+        val bestMode = display.supportedModes
+            .filter { it.physicalWidth == currentMode.physicalWidth && it.physicalHeight == currentMode.physicalHeight }
+            .maxByOrNull { it.refreshRate }
+            ?: return
+        if (bestMode.refreshRate <= currentMode.refreshRate) return
+        window.attributes = window.attributes.apply { preferredDisplayModeId = bestMode.modeId }
     }
 }
 

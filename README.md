@@ -23,8 +23,11 @@ The project has gone through two earlier forms before settling here:
 ## Status
 
 Back to native Android (Kotlin + Jetpack Compose + Media3/ExoPlayer + Room) - see
-`Claude/ANDROID ARCHITECTURE.md`. The organization pipeline (scanning, tag reading,
-MusicBrainz/Gemini grounding/AcoustID matching, scoring, persistence) is fully
+`Claude/ANDROID ARCHITECTURE.md` (the two superseded attempts' full write-ups now
+live in `Claude/ANDROID ARCHITECTURE - LEGACY ATTEMPTS.md`, split out to keep the
+main doc focused on the current implementation). The organization pipeline (scanning,
+tag reading, MusicBrainz/Gemini grounding/AcoustID matching, scoring, persistence) is
+fully
 re-ported into Kotlin at `app/src/main/java/com/mslynch/awesomesource/organize/`
 and verified for real: `./gradlew assembleDebug` builds, all 58 ported unit tests
 pass, and the APK installs and runs on a real emulator (screenshotted to confirm).
@@ -51,6 +54,20 @@ end-to-end against the same real library, including a real database write via
 "Accept proposed match" (see ANDROID ARCHITECTURE.md's "REVIEW-STATUS MODEL"
 section). The AcoustID key still needs replacing with an *application* key (see
 ANDROID ARCHITECTURE.md) regardless of stack.
+
+A follow-up investigation into why the review-status stats (1368) didn't match the
+~2500-file library count found and fixed a real bug: 31 real `.m4a` files were
+permanently unrecoverable because a `jaudiotagger` tag-parse failure had no fallback,
+unlike the WAV/OGG path - fixed so a tag-read failure now falls back to sidecar/
+filename-guessing too (see ANDROID ARCHITECTURE.md's "MISSING-FILES INVESTIGATION"
+section). The rest of the apparent gap was confirmed to be non-music project
+internals and macOS resource-fork junk, correctly excluded by the scanner. The
+Library screen also gained long-press multi-select with bulk field editing (set
+Artist/Album/etc. across many tracks at once, leaving unfilled fields untouched per
+track - see "BULK MULTI-SELECT EDITING"), the app now requests the display's highest
+available refresh rate, and the MusicBrainz query cache's already-working pattern was
+extended to Gemini grounding responses so rescanning an already-organized library
+stops re-spending Gemini quota on matches it already graded.
 
 ## Running it
 

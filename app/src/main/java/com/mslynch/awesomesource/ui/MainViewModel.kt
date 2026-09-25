@@ -185,6 +185,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Applies only the fields the user actually typed a value into (per-field, not
+     * per-track) across every selected track, leaving every other field on every
+     * track exactly as it already was - the bulk-edit equivalent of
+     * [updateTrackDetails], for the "select a group of tracks and give them all the
+     * same album" case. A blank field in the bulk-edit form means "don't touch this
+     * field", not "clear it" - unlike the single-track edit form (which is always
+     * pre-filled with the current values, so every field is always an explicit
+     * choice), a bulk form starts empty and the tracks it applies to may well
+     * already disagree on a field the user isn't trying to change. */
+    fun bulkUpdateTrackDetails(
+        paths: Set<String>,
+        artist: String?,
+        albumArtist: String?,
+        album: String?,
+        genre: String?,
+        composer: String?,
+        year: Int?,
+    ) {
+        viewModelScope.launch {
+            val updated = paths.mapNotNull { path ->
+                val existing = db.trackDao().getByPath(path) ?: return@mapNotNull null
+                existing.copy(
+                    artist = artist?.ifBlank { null } ?: existing.artist,
+                    albumArtist = albumArtist?.ifBlank { null } ?: existing.albumArtist,
+                    album = album?.ifBlank { null } ?: existing.album,
+                    genre = genre?.ifBlank { null } ?: existing.genre,
+                    composer = composer?.ifBlank { null } ?: existing.composer,
+                    year = year ?: existing.year,
+                    source = MetadataSource.MANUAL_ENTRY,
+                )
+            }
+            db.trackDao().upsertAll(updated)
+        }
+    }
+
     /** Copies a MATCH_FOUND track's drafted `proposed*` fields into its real fields -
      * the "accept this draft" action a match-found row's own field values were
      * always meant to feed, without ever touching the file itself (still nothing in
