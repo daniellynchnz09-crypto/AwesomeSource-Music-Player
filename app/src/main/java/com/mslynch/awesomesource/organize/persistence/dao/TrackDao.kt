@@ -36,6 +36,17 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE path IN (:paths)")
     suspend fun getByPaths(paths: List<String>): List<TrackEntity>
 
+    /** Every track anywhere in the library already matched to a given release - see
+     * `OrganizeLibrary.discoverAlbumSiblings`'s doc comment for why this has to be a
+     * real library-wide query rather than just the current group's own files: a
+     * release's tracks can end up split across several different `AlbumGroup`s
+     * (e.g. one already matched in an earlier scan, another only reachable via
+     * sibling detection triggered by a different group later), so checking only
+     * "this group's files" for which positions are already claimed can wrongly
+     * treat an already-taken position as still missing. */
+    @Query("SELECT * FROM tracks WHERE matchedReleaseId = :releaseId")
+    suspend fun getByMatchedReleaseId(releaseId: String): List<TrackEntity>
+
     /** Every track whose path starts with `folderPrefix/` - a superset of the
      * immediate folder siblings (nested subfolders match too), narrowed down to
      * direct children in Kotlin by the caller since SQLite has no portable way to

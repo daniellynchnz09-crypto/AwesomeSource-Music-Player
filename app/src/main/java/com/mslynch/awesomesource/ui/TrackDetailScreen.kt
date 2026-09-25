@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +25,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -83,6 +85,10 @@ fun TrackDetailScreen(viewModel: MainViewModel, path: String, onBack: () -> Unit
                 viewModel.acceptProposedMatch(current.path)
                 onBack()
             },
+            onRejectProposed = {
+                viewModel.rejectProposedMatch(current.path)
+                onBack()
+            },
             onSave = { artist, albumArtist, album, title, trackNumber, year, genre, composer ->
                 viewModel.updateTrackDetails(current.path, artist, albumArtist, album, title, trackNumber, year, genre, composer)
                 onBack()
@@ -96,6 +102,7 @@ private fun TrackDetailForm(
     modifier: Modifier = Modifier,
     track: TrackEntity,
     onAcceptProposed: () -> Unit,
+    onRejectProposed: () -> Unit,
     onSave: (
         artist: String?,
         albumArtist: String?,
@@ -133,7 +140,7 @@ private fun TrackDetailForm(
         Text(track.path, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         if (reviewStatus == ReviewStatus.MATCH_FOUND) {
-            ProposedMatchCard(track, onAccept = onAcceptProposed)
+            ProposedMatchCard(track, onAccept = onAcceptProposed, onReject = onRejectProposed)
         }
 
         OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
@@ -169,7 +176,7 @@ private fun TrackDetailForm(
 }
 
 @Composable
-private fun ProposedMatchCard(track: TrackEntity, onAccept: () -> Unit) {
+private fun ProposedMatchCard(track: TrackEntity, onAccept: () -> Unit, onReject: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(8.dp),
@@ -183,8 +190,17 @@ private fun ProposedMatchCard(track: TrackEntity, onAccept: () -> Unit) {
             ProposedRow("Album", track.proposedAlbum)
             ProposedRow("Track number", track.proposedTrackNumber?.toString())
             ProposedRow("Year", track.proposedYear?.toString())
-            OutlinedButton(onClick = onAccept, modifier = Modifier.fillMaxWidth()) {
-                Text("Accept proposed match")
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Reject clears the draft without touching any real field, for
+                // exactly the case that surfaced the need for it: a wrong sibling-
+                // detection guess (see OrganizeLibrary.discoverAlbumSiblings) that
+                // shouldn't ever be accepted, with no other way to dismiss it.
+                TextButton(onClick = onReject, modifier = Modifier.weight(1f)) {
+                    Text("Reject")
+                }
+                OutlinedButton(onClick = onAccept, modifier = Modifier.weight(1f)) {
+                    Text("Accept")
+                }
             }
         }
     }

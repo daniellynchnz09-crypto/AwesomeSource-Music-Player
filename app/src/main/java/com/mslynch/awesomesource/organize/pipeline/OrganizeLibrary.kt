@@ -329,13 +329,26 @@ class OrganizeLibrary(private val context: Context) {
      * fuzzy-matches one of those specific unclaimed positions - per the user's
      * explicit choice of "only if MusicBrainz confirms it" over a looser
      * folder-plus-filename-pattern heuristic. A sibling already confidently matched
-     * to something else (`matchedReleaseId != null`) is left alone. */
+     * to something else (`matchedReleaseId != null`) is left alone.
+     *
+     * "Claimed" is checked library-wide (`TrackDao.getByMatchedReleaseId`), not just
+     * against this group's own files - found via a real false-positive report: a
+     * completely unrelated, untagged "Mr. Bill - For A Friend.mp3" got proposed as
+     * Tipper's "Preparations for Departure" (position 12 of "Cloaked"), because the
+     * *real* "12 Preparations For Departure.mp3" - already correctly matched to
+     * that exact position - belonged to a different `AlbumGroup` than the one that
+     * happened to trigger this sibling scan, so `resolved.files` alone never saw
+     * position 12 as taken. A release's tracks can end up split across several
+     * groups (one matched in an earlier scan, another only reached via sibling
+     * detection triggered later), so only a library-wide check can actually know
+     * which positions are free. */
     private suspend fun discoverAlbumSiblings(mbClient: MusicBrainzClient, resolved: AlbumGroup) {
         val releaseId = resolved.chosenReleaseId ?: return
         val release = try { mbClient.getReleaseTracklist(releaseId) } catch (e: Exception) { return }
         if (release.tracks.isEmpty()) return
 
-        val claimedPositions = resolved.files.mapNotNull { it.trackNumber }.toSet()
+        val claimedPositions = db.trackDao().getByMatchedReleaseId(releaseId).mapNotNull { it.trackNumber }.toSet() +
+            resolved.files.mapNotNull { it.trackNumber }.toSet()
         val missingTracks = release.tracks.filterKeys { it !in claimedPositions }
         if (missingTracks.isEmpty()) return
 

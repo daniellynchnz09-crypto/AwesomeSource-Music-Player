@@ -864,6 +864,48 @@ Also added, per direct request: an alphabetical/"recently updated" sort control
 `Migration(3, 4)` - same reasoning as the coverArtPath migration, real curated data
 now exists that's worth preserving through a schema change).
 
+A FALSE-POSITIVE SIBLING MATCH, AND A NEW "REJECT" ACTION: the user reported an
+untagged, unrelated file - "Mr. Bill - For A Friend.mp3" - had been proposed as
+Tipper's "Preparations for Departure" (position 12 of "Cloaked"), when a track by
+that exact name already existed correctly, separately matched to that exact
+position elsewhere in the library ("EDM/12 Preparations For Departure.mp3").
+Confirmed directly against the real database before touching any code: both rows
+really did share `matchedReleaseId` and position 12. Root cause, in
+`OrganizeLibrary.discoverAlbumSiblings`: "which positions are already claimed" was
+computed only from the *current* `AlbumGroup`'s own files
+(`resolved.files.mapNotNull { it.trackNumber }`), not the whole library - so when a
+release's tracks end up split across multiple groups (one matched cleanly in an
+earlier pass, another only reached later via sibling detection triggered by a
+different group), the later pass has no way to know position 12 was already taken,
+and happily hands it to whatever untagged folder-mate fuzzy-matches best. Fixed by
+adding `TrackDao.getByMatchedReleaseId` and unioning its real trackNumbers into the
+"claimed" set before computing what's still missing.
+
+Fixing the code doesn't retroactively fix data already written by the bug, and
+`isCurated()` means a plain rescan can't touch it either (the false-positive row
+already has `matchedReleaseId` set, so it looks "curated" even though the match is
+wrong) - there was also no existing way for a user to dismiss a MATCH_FOUND draft
+without either accepting it or leaving it stuck forever. Added a symmetric
+`MainViewModel.rejectProposedMatch`/`TrackDetailScreen` "Reject" button next to
+"Accept" for exactly this - clears `matchedReleaseId` and every `proposed*` field
+without touching any real field, so the row falls back to whatever its own honest
+data supports. Used it for real to clear "Mr. Bill"'s bad draft, verified directly
+against the database (all proposed fields empty, `matchedReleaseId` null, the real
+"12 Preparations For Departure.mp3" row completely untouched) and against the
+stats bar (Match Found 19->18, No Match 226->227 - an honest outcome, since the
+file genuinely has no tags to match on).
+
+A related, NOT-yet-fixed finding from the same investigation: three more pairs of
+tracks share a `matchedReleaseId` + `trackNumber` combination even outside
+`discoverAlbumSiblings` (e.g. two clearly different Bach works, BWV 1041 and BWV
+1047, both claiming position 3 of the same release) - the regular per-group
+position-matching in `ReleaseResolver` (used by every ordinary match, not just
+sibling detection) has the same "no awareness of what other groups already
+claimed" gap, just via a different call site. Flagged for the user rather than
+fixed unprompted, since generalizing the library-wide check into the core
+auto-apply path used for every match is a larger, riskier change than this
+specific bug report asked for.
+
 SUPERSEDED: the two prior attempts (Expo/React Native, and the original native
 Kotlin plan) have their own full write-ups - kept for the real bugs/fixes they
 found, not as active plans - in `Claude/ANDROID ARCHITECTURE - LEGACY ATTEMPTS.md`.

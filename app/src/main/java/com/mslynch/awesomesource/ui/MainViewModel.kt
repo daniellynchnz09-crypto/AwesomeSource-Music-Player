@@ -282,6 +282,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** The opposite of [acceptProposedMatch] - clears a wrong draft (`matchedReleaseId`
+     * and every `proposed*` field) without touching any of the track's own real
+     * fields, so it falls back to whatever status its own data honestly supports
+     * (usually Verify or No Match) instead of sitting on a match that isn't real.
+     * Added after a real false positive: `OrganizeLibrary.discoverAlbumSiblings`
+     * proposed an untagged, unrelated file as a specific Tipper "Cloaked" track
+     * whose position was already correctly claimed by a different file elsewhere in
+     * the library (see that function's doc comment for the actual fix) - clearing
+     * the bad row this way, through the app's own normal write path, is also how
+     * any future false positive gets un-stuck, not just this one. */
+    fun rejectProposedMatch(path: String) {
+        viewModelScope.launch {
+            val existing = db.trackDao().getByPath(path) ?: return@launch
+            db.trackDao().upsert(
+                existing.copy(
+                    matchedReleaseId = null,
+                    proposedArtist = null,
+                    proposedAlbumArtist = null,
+                    proposedAlbum = null,
+                    proposedTitle = null,
+                    proposedTrackNumber = null,
+                    proposedYear = null,
+                    statusDetail = "",
+                    updatedAt = Instant.now().toString(),
+                )
+            )
+        }
+    }
+
     /** The multi-select "Approve" action - applies the exact same accept-a-draft
      * logic as [acceptProposedMatch] to every selected track in one batched write,
      * rather than issuing one coroutine/DB-write/reactive-Flow-refresh per track (a

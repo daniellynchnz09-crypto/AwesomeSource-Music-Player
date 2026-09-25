@@ -200,6 +200,25 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
     they always meant.
 8r. ~~Alphabetical / "recently updated" sort for the Library list~~ - done, per
     direct request. Added a real `updatedAt` column via `Migration(3, 4)`.
+8s. ~~A false-positive album-sibling match: "Mr. Bill - For A Friend.mp3" was
+    proposed as Tipper's "Preparations for Departure" (Cloaked, position 12), a
+    position already correctly claimed by a real, separate track elsewhere in the
+    library~~ - done: `discoverAlbumSiblings` only checked the *current group's*
+    own files for already-claimed positions, not the whole library, so a release
+    split across multiple groups over time could hand out a position twice. Fixed
+    via a new library-wide `TrackDao.getByMatchedReleaseId` check. Also added a
+    "Reject" action (`MainViewModel.rejectProposedMatch`) next to "Accept" for any
+    future false positive, since `isCurated()` otherwise leaves a bad draft stuck
+    forever - used it for real to clear this exact row, verified against the
+    database and the stats bar (Match Found 19->18, No Match 226->227).
+8t. NOT yet fixed - flagged, not acted on unprompted: the same "no library-wide
+    awareness of already-claimed positions" gap also exists in the regular
+    per-group matching path (`ReleaseResolver`, used by every ordinary match, not
+    just sibling detection) - found three more pairs of tracks sharing a
+    `matchedReleaseId` + `trackNumber` (e.g. two different Bach works, BWV 1041 and
+    BWV 1047, both claiming position 3 of the same release). Generalizing the fix
+    into the core auto-apply path is a larger, riskier change than the specific bug
+    reported in 8s - needs the user's go-ahead before touching it.
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
    needs to be built once playback (Media3/ExoPlayer) is wired up.
 10. The design pass (Neo-Aero/Dark-Aero/skeuomorphic per Claude/App DESIGN.md) is
