@@ -19,6 +19,20 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE path = :path")
     suspend fun getByPath(path: String): TrackEntity?
 
+    /** Tracks the pipeline already confidently matched (so a release ID is known)
+     * but which never got a cached artwork file - either because they were matched
+     * before cover-art fetching existed, or the fetch failed/found nothing archived
+     * at the time. `isCurated()` blocks these from ever going through a normal
+     * rescan again, so this is the only path left to backfill `coverArtPath` for
+     * them - see `OrganizeLibrary.backfillMissingCoverArt`. */
+    @Query("SELECT * FROM tracks WHERE matchedReleaseId IS NOT NULL AND coverArtPath IS NULL")
+    suspend fun getCuratedMissingArt(): List<TrackEntity>
+
+    /** Narrow, single-column update so a cover-art backfill can't touch any of a
+     * curated track's protected fields - see `isCurated()`. */
+    @Query("UPDATE tracks SET coverArtPath = :coverArtPath WHERE path = :path")
+    suspend fun updateCoverArtPath(path: String, coverArtPath: String)
+
     @Query("SELECT * FROM tracks WHERE path IN (:paths)")
     suspend fun getByPaths(paths: List<String>): List<TrackEntity>
 

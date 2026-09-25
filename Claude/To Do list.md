@@ -101,10 +101,11 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
     tests pass; not yet re-verified against a live cache hit (blocked on completing
     a full rescan - see the "TWO REAL MISTAKES" section for why one didn't finish
     cleanly this pass).
-8h. A pre-existing gap noticed while testing 8f, not yet fixed: the system back
-    button from the track detail screen exits the app entirely instead of returning
-    to the Library list, since dismissal is only wired to the screen's own in-app
-    back arrow.
+8h. ~~A pre-existing gap noticed while testing 8f: the system back button from the
+    track detail screen exits the app entirely instead of returning to the Library
+    list, since dismissal is only wired to the screen's own in-app back arrow~~ -
+    done: a plain `BackHandler` now calls the same `onBack` the in-app arrow already
+    used. Verified via `dumpsys window`'s focused-activity check before and after.
 8i. ~~Automatically re-query MusicBrainz/Gemini after a bulk edit fills in enough
     detail to make a track matchable, and look for other tracks in the same folder
     that plausibly belong to the same now-confirmed album~~ - done: see ANDROID
@@ -157,6 +158,45 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
     Quest For Fire collaboration data survived intact this time, while tracks nobody
     had touched yet were still refreshed normally (629 got fresh tag reads, correctly
     picking up new `coverArtPath` thumbnails along the way).
+8m. ~~"Hysteric" by Badklaat & PYKE wouldn't advance past Match Found no matter how
+    many times "Accept proposed match" was tapped~~ - done: `hasAllDetails`
+    unconditionally required a track number, which this single (from a
+    various-artists compilation) genuinely could never resolve even though every
+    other field agreed with the confirmed match. Dropped the requirement - see
+    ANDROID ARCHITECTURE.md's "A BATCH OF REAL BUGS FOUND WHILE USING THE APP FOR
+    REAL" section, item 1. Fixing it retroactively reclassified hundreds of tracks
+    on install alone, no rescan needed.
+8n. ~~Search and the status-filter chips looked broken together~~ - done: they
+    both worked correctly in isolation, but an isolated stats-tile filter silently
+    scoped search results too, with no visual reminder. Decoupled: a non-blank
+    search query now searches the whole library regardless of the active filter
+    chips. Also fixed two dead-ends: tapping an already-isolated stats tile now
+    resets to "show everything", and toggling off the last filter chip no longer
+    leaves an empty, permanently-blank list.
+8o. ~~Cover art was never fetched from Cover Art Archive for a confirmed match,
+    only ever read from a file's own embedded tags~~ - done: `coverArtPath` was
+    simply never wired to the already-fetched cover image (a half-built feature),
+    compounded by `QueryGroup` explicitly disabling the fetch and `isCurated()`
+    permanently blocking a retry for already-matched tracks. Fixed all three
+    layers, plus a new `OrganizeLibrary.backfillMissingCoverArt` (grouped by
+    release so an album downloads its cover once, not once per track) to reach the
+    ~560 tracks already matched before this fix existed. Verified end-to-end: all
+    15 Quest For Fire tracks and Tipper's "Broken Soul Jamboree" picked up real art;
+    remaining gaps confirmed via direct `curl` checks to be genuine
+    nothing-archived/server-error cases, not an app bug.
+8p. ~~The above backfill's first real run looked exactly like a hang~~ - done:
+    added a fifth `OrganizeLibrary.Phase.FETCHING_ART` so the progress bar keeps
+    visibly moving through a ~100-release backfill instead of sitting unchanged at
+    "Organizing…" for several minutes after the querying phase already hit 100%.
+8q. ~~Bulk multi-select gained an "Approve" action next to Edit, and the tiny
+    corner edit icon became a full-width rectangular button~~ - done, per direct
+    request. Approve reuses the single-track accept logic in one batched write per
+    tap rather than one per track (also addresses at least part of a reported
+    app hang/crash from approving many tracks individually) and can never force a
+    status directly - a track with nothing proposed is a no-op, so the status
+    filters still mean exactly what they always meant.
+8r. ~~Alphabetical / "recently updated" sort for the Library list~~ - done, per
+    direct request. Added a real `updatedAt` column via `Migration(3, 4)`.
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
    needs to be built once playback (Media3/ExoPlayer) is wired up.
 10. The design pass (Neo-Aero/Dark-Aero/skeuomorphic per Claude/App DESIGN.md) is

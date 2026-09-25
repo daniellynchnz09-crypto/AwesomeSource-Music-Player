@@ -106,10 +106,22 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
     val counts = remember(tracks) {
         ReviewStatus.entries.associateWith { status -> tracks.count { it.reviewStatus() == status } }
     }
-    val filtered = remember(tracks, viewModel.searchQuery, viewModel.searchField, viewModel.statusFilter) {
+    // A search query searches the WHOLE library regardless of which status chips
+    // are active - the status filter only narrows the plain browse view. Without
+    // this, typing a search query while a stats tile is isolated (e.g. tapped
+    // "Match Found" earlier) silently searches only that one status with no visual
+    // reminder why, which looked exactly like "search is broken" - it wasn't; it was
+    // quietly AND-ed with whatever filter happened to still be active.
+    val filtered = remember(tracks, viewModel.searchQuery, viewModel.searchField, viewModel.statusFilter, viewModel.sortMode) {
         tracks
-            .filter { it.reviewStatus() in viewModel.statusFilter }
             .filter { matchesSearch(it, viewModel.searchQuery, viewModel.searchField) }
+            .filter { viewModel.searchQuery.isNotBlank() || it.reviewStatus() in viewModel.statusFilter }
+            .let { list ->
+                when (viewModel.sortMode) {
+                    SortMode.ALPHABETICAL -> list.sortedBy { (it.title ?: it.path.substringAfterLast('/')).lowercase() }
+                    SortMode.RECENTLY_UPDATED -> list.sortedByDescending { it.updatedAt ?: "" }
+                }
+            }
     }
     val listState = rememberLazyListState()
 
@@ -133,11 +145,6 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
                             Icon(Icons.Filled.Close, contentDescription = "Clear selection")
                         }
                     },
-                    actions = {
-                        IconButton(onClick = { showBulkEditDialog = true }) {
-                            Icon(Icons.Filled.Edit, contentDescription = "Edit selected tracks")
-                        }
-                    },
                 )
             } else {
                 TopAppBar(
@@ -148,6 +155,38 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
                         }
                     },
                 )
+            }
+        },
+        bottomBar = {
+            // A long rectangular row rather than a small corner icon, per the
+            // user's own request that the old tiny edit button was easy to miss -
+            // "Approve" sits alongside it since selecting tracks to accept their
+            // drafted matches in bulk is exactly as common a next step as bulk-
+            // editing them. Approve only ever applies a draft a track already has
+            // (see MainViewModel.bulkAcceptProposedMatches) - it can't force a
+            // status, so it can't make the review-status filters meaningless.
+            if (selectedPaths.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Button(
+                        onClick = {
+                            viewModel.bulkAcceptProposedMatches(selectedPaths)
+                            selectedPaths = emptySet()
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Approve")
+                    }
+                    Button(
+                        onClick = { showBulkEditDialog = true },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                        Text("Edit")
+                    }
+                }
             }
         },
     ) { innerPadding ->
@@ -184,6 +223,7 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
                     onFieldChange = viewModel::updateSearchField,
                 )
                 StatusFilterChips(selected = viewModel.statusFilter, onToggle = viewModel::toggleStatusFilter)
+                SortRow(mode = viewModel.sortMode, onModeChange = viewModel::updateSortMode)
             }
 
             if (tracks.isEmpty()) {
@@ -384,6 +424,38 @@ private fun StatusFilterChips(selected: Set<ReviewStatus>, onToggle: (ReviewStat
             )
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SortRow(mode: SortMode, onModeChange: (SortMode) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Sort:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box {
+            TextButton(onClick = { expanded = true }) {
+                Text(sortModeLabel(mode))
+                Icon(Icons.Filled.ArrowDropDown, contentDescription = "Choose sort order")
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                SortMode.entries.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(sortModeLabel(option)) },
+                        onClick = { onModeChange(option); expanded = false },
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun sortModeLabel(mode: SortMode): String = when (mode) {
+    SortMode.ALPHABETICAL -> "A–Z"
+    SortMode.RECENTLY_UPDATED -> "Recently updated"
 }
 
 /** A thumb on the right edge sized/positioned from [LazyListState.layoutInfo] and

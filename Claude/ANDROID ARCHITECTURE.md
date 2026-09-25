@@ -760,6 +760,109 @@ the React Native situation, but still needs a real device/build loop to verify
 rather than being written blind. Recommended: spike this once the new Kotlin
 project can actually build and run.
 
+A BATCH OF REAL BUGS FOUND WHILE USING THE APP FOR REAL: a single session of the
+user actually using the organized library (searching, filtering, accepting matches,
+bulk-editing) surfaced five separate genuine bugs, each confirmed against the real
+on-device database/UI before being fixed, not guessed at:
+
+1. **A track could get permanently stuck at MATCH_FOUND with no way out.** The
+   user reported "Hysteric" by Badklaat & PYKE (a single off the various-artists
+   compilation "Never Say Die, Vol. 7") wouldn't advance past MATCH_FOUND no matter
+   how many times "Accept proposed match" was tapped. Queried the real row directly:
+   artist/album/title all agreed between the real and proposed fields (a fully
+   successful match), but `trackNumber` and `proposedTrackNumber` were both null -
+   MusicBrainz's own tracklist-position matching genuinely couldn't place this
+   single within the compilation, and no filename-embedded number existed either.
+   `TrackEntity.reviewStatus()`'s `hasAllDetails` required `trackNumber != null`
+   unconditionally, so accepting the draft copied every field (including the null
+   track number) and status never moved - not a bug in "Accept", but in what
+   "complete" was defined to mean. Fixed by dropping the trackNumber requirement
+   from `hasAllDetails` entirely; a position that's genuinely unknowable shouldn't
+   block an otherwise-confident match from ever being treated as done. Installing
+   the fix alone (no rescan needed, since `reviewStatus()` is always recomputed
+   fresh) immediately reclassified hundreds of tracks library-wide: Approved
+   533->539, Verify 432->582 on this one install.
+2. **Search and status-filter chips looked broken together, but both worked
+   correctly in isolation.** Tapping a stats tile (e.g. "Match Found") calls
+   `isolateStatusFilter`, narrowing the browse list to just that one status - with
+   no visual reminder that it's still active. Typing a search query for a track in
+   a *different* status (e.g. an Approved track, while "No Match" was still
+   isolated from an earlier tap) silently ANDed the two filters together and
+   returned nothing, which looked exactly like "search is broken" or "filtering is
+   broken" - reproduced this precisely on-device via `uiautomator`/real screenshots
+   before concluding neither was actually broken. Fixed by decoupling the two: a
+   non-blank search query now searches the *whole* library regardless of which
+   status chips are active; the status filter only narrows the plain browse view
+   when there's no active search. Also fixed two related dead-ends: tapping an
+   already-isolated stats tile now toggles back to showing every status (previously
+   a one-way trip needing four individual chip taps to undo), and toggling off the
+   last remaining filter chip now resets to "show everything" instead of landing on
+   an empty, dead-end-looking list.
+3. **Cover art was only ever read from a file's own embedded tags, never fetched
+   for a confirmed match.** The user asked why the real, matched Skrillex "Quest
+   For Fire" album had no art despite Cover Art Archive genuinely having it (verified
+   directly with `curl` - a real 60KB cover, reachable in 3 redirects). Traced
+   through `ReleaseResolver.resolveGroupToProposed`: it already fetched the cover
+   image via `CoverArtClient` and used it to set `hasCoverArt`/`coverArtMime`, but
+   the actual `coverArtPath` field the UI reads for the thumbnail was never
+   assigned from it - a half-wired feature, not a network failure. Compounding
+   this, `QueryGroup`'s two call sites passed `fetchCoverArt = false` (deferring to
+   a "fetch it when the user accepts" plan that was never actually implemented at
+   the acceptance point), and `isCurated()` permanently blocks a rescan from ever
+   re-attempting tag reads for an already-matched track - meaning even fixing the
+   wiring wouldn't help a single one of the ~560 already-matched tracks sitting in
+   the real library today. Fixed all three layers: `resolveGroupToProposed` now
+   sets `coverArtPath` from the fetched image (a track's own embedded art still
+   wins if it has one, per MUSIC ORGANIZATION.md's per-track-overrides-album rule);
+   `QueryGroup` now fetches art at the two points a group is *already* confidently
+   AUTO_MATCHED (never for a candidate that might still be rejected); and a new
+   `OrganizeLibrary.backfillMissingCoverArt`, grouped by release ID so an album
+   downloads its cover once rather than once per track, runs after every
+   `organize()`/`requeryTracks()` specifically to reach the tracks `isCurated()`
+   otherwise strands forever. Verified end-to-end against the real library: all 15
+   Quest For Fire tracks and Tipper's "Broken Soul Jamboree" picked up their real
+   album art; the ~26 remaining gaps were confirmed via direct `curl` checks against
+   Cover Art Archive to be genuine 404s/500s (nothing archived, or a transient
+   server error) rather than anything the app did wrong.
+3a. **The above backfill's own first real run looked exactly like a hang.** A
+   ~100-release backfill has no per-track granularity to report, so the first
+   on-device test sat at "Organizing…" with the querying phase's own progress bar
+   already at 100% and no visible change for over three minutes - not actually
+   stuck (it finished, and the user's own "I think I crashed the app" report may
+   well have been this exact scenario, though it couldn't be confirmed without a
+   log from their device), but indistinguishable from one. Added a fifth
+   `OrganizeLibrary.Phase.FETCHING_ART` that reports progress per release fetched,
+   so the existing progress bar now visibly keeps moving through this phase instead
+   of appearing frozen.
+4. **Bulk multi-select gained an "Approve" action alongside "Edit", and the tiny
+   corner edit icon became a full-width rectangular button** - both per direct user
+   request ("perhaps the select controls can be used to bulk approve", "instead of
+   a tiny edit button... a long rectangular button that says edit"). Approve reuses
+   the exact same accept-a-draft logic as the single-track flow
+   (`MainViewModel.acceptProposedMatch`), refactored into a shared
+   `TrackEntity.withProposedAccepted()` and applied to every selected track in one
+   batched `upsertAll` write rather than one coroutine/DB-write/reactive-refresh per
+   track - both for performance (a large selection accepted one row at a time is
+   suspected to be at least part of what caused the reported crash/hang) and so it
+   can never force a status directly: a track with nothing proposed (e.g. a genuine
+   No Match row) is a no-op, since every field falls back to its own existing
+   value. This was a deliberate answer to the user's own follow-up question ("what's
+   the point in the status filters if bulk-approve does the same thing?") - it
+   doesn't; Approve only ever accelerates accepting a draft a track already earned
+   through real matching, so the filters still mean exactly what they always meant.
+5. **System back from the track-detail screen exited the whole app.** Found
+   incidentally while testing the above (not something the user had reported yet) -
+   `TrackDetailScreen` is swapped in over `LibraryScreen` directly rather than
+   pushed onto a navigation back stack, so system back had nothing to pop to and
+   fell through to finishing the Activity. Fixed with a plain `BackHandler` that
+   calls the same `onBack` the in-app back arrow already used. Verified via
+   `dumpsys window`'s focused-activity check before and after.
+
+Also added, per direct request: an alphabetical/"recently updated" sort control
+(`SortMode`, a new `updatedAt` column bumping the schema to a real, non-destructive
+`Migration(3, 4)` - same reasoning as the coverArtPath migration, real curated data
+now exists that's worth preserving through a schema change).
+
 SUPERSEDED: the two prior attempts (Expo/React Native, and the original native
 Kotlin plan) have their own full write-ups - kept for the real bugs/fixes they
 found, not as active plans - in `Claude/ANDROID ARCHITECTURE - LEGACY ATTEMPTS.md`.

@@ -18,11 +18,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Instant
 
 /** Which field(s) the Library screen's search box matches against - the "search by
  * name, artist, album, match status" the user asked for, picked via a dropdown next
  * to the search field rather than one box per field. */
 enum class SearchField { ALL, TITLE, ARTIST, ALBUM, STATUS }
+
+/** How the Library screen orders its (filtered) track list. */
+enum class SortMode { ALPHABETICAL, RECENTLY_UPDATED }
 
 /**
  * Backs the Setup/Library/Settings screens - the Kotlin/Compose equivalent of the
@@ -69,6 +73,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Defaults to just NO_MATCH_FOUND per the requested behavior - tracks that got
      * no match at all are the ones most likely to need the user's attention first. */
     var statusFilter by mutableStateOf(setOf(ReviewStatus.NO_MATCH_FOUND))
+        private set
+
+    var sortMode by mutableStateOf(SortMode.ALPHABETICAL)
         private set
 
     /** Non-null while the track-detail/manual-edit screen is showing, per its path
@@ -135,16 +142,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Chip-row toggle - lets any combination of statuses be shown/hidden, e.g.
-     * unchecking Approved to filter it out. */
+     * unchecking Approved to filter it out. Never leaves the filter empty - toggling
+     * off the last remaining status resets to "show everything" instead, since an
+     * empty filter set can only ever mean an empty (and confusing, dead-end-looking)
+     * list. */
     fun toggleStatusFilter(status: ReviewStatus) {
-        statusFilter = if (status in statusFilter) statusFilter - status else statusFilter + status
+        val next = if (status in statusFilter) statusFilter - status else statusFilter + status
+        statusFilter = next.ifEmpty { ReviewStatus.entries.toSet() }
     }
 
     /** Tapping a stats tile "hides the other entries and only shows the entries
      * that have that status" - a single-status select, distinct from the
-     * multi-select chip toggle above. */
+     * multi-select chip toggle above. Tapping the *already*-isolated tile again
+     * resets to showing every status, so isolating is a reversible tap rather than a
+     * one-way trip that then needs four individual chip taps to undo. */
     fun isolateStatusFilter(status: ReviewStatus) {
-        statusFilter = setOf(status)
+        statusFilter = if (statusFilter == setOf(status)) ReviewStatus.entries.toSet() else setOf(status)
+    }
+
+    fun updateSortMode(mode: SortMode) {
+        sortMode = mode
     }
 
     fun selectTrack(path: String?) {
@@ -180,6 +197,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     genre = genre?.ifBlank { null },
                     composer = composer?.ifBlank { null },
                     source = MetadataSource.MANUAL_ENTRY,
+                    updatedAt = Instant.now().toString(),
                 )
             )
         }
@@ -223,6 +241,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     composer = composer?.ifBlank { null } ?: existing.composer,
                     year = year ?: existing.year,
                     source = MetadataSource.MANUAL_ENTRY,
+                    updatedAt = Instant.now().toString(),
                 )
             }
             db.trackDao().upsertAll(updated)
@@ -238,24 +257,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Copies a MATCH_FOUND track's drafted `proposed*` fields into its real fields -
-     * the "accept this draft" action a match-found row's own field values were
-     * always meant to feed, without ever touching the file itself (still nothing in
-     * this pipeline writes tags back to files - see Claude/To Do list.md). */
+    /** Copies a track's drafted `proposed*` fields into its real fields - the
+     * "accept this draft" action a match-found row's own field values were always
+     * meant to feed, without ever touching the file itself (still nothing in this
+     * pipeline writes tags back to files - see Claude/To Do list.md). A no-op for a
+     * track with nothing proposed (every `proposed*` field null) - `?:` just keeps
+     * the existing value - so calling this on a track that was never a match-found
+     * draft (e.g. a plain No Match row) is always safe. */
+    private fun TrackEntity.withProposedAccepted(): TrackEntity = copy(
+        artist = proposedArtist ?: artist,
+        albumArtist = proposedAlbumArtist ?: albumArtist,
+        album = proposedAlbum ?: album,
+        title = proposedTitle ?: title,
+        trackNumber = proposedTrackNumber ?: trackNumber,
+        year = proposedYear ?: year,
+        source = MetadataSource.ONLINE_LOOKUP,
+        updatedAt = Instant.now().toString(),
+    )
+
     fun acceptProposedMatch(path: String) {
         viewModelScope.launch {
             val existing = db.trackDao().getByPath(path) ?: return@launch
-            db.trackDao().upsert(
-                existing.copy(
-                    artist = existing.proposedArtist ?: existing.artist,
-                    albumArtist = existing.proposedAlbumArtist ?: existing.albumArtist,
-                    album = existing.proposedAlbum ?: existing.album,
-                    title = existing.proposedTitle ?: existing.title,
-                    trackNumber = existing.proposedTrackNumber ?: existing.trackNumber,
-                    year = existing.proposedYear ?: existing.year,
-                    source = MetadataSource.ONLINE_LOOKUP,
-                )
-            )
+            db.trackDao().upsert(existing.withProposedAccepted())
+        }
+    }
+
+    /** The multi-select "Approve" action - applies the exact same accept-a-draft
+     * logic as [acceptProposedMatch] to every selected track in one batched write,
+     * rather than issuing one coroutine/DB-write/reactive-Flow-refresh per track (a
+     * large selection accepted one row at a time is what's suspected to have caused
+     * a real reported app hang/crash). This deliberately does NOT let the user force
+     * any status directly - it only ever applies a draft a track already has, so it
+     * can't make the status filters meaningless: a track with no proposed match
+     * (e.g. a genuine No Match row) is untouched, since every field in
+     * [withProposedAccepted] falls back to its own existing value. */
+    fun bulkAcceptProposedMatches(paths: Set<String>) {
+        if (paths.isEmpty()) return
+        viewModelScope.launch {
+            val updated = db.trackDao().getByPaths(paths.toList()).map { it.withProposedAccepted() }
+            db.trackDao().upsertAll(updated)
         }
     }
 

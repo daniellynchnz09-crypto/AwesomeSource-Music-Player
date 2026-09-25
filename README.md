@@ -102,6 +102,24 @@ by deliberately re-running the exact rescan that caused the original incident an
 confirming the data survived intact this time - see ANDROID ARCHITECTURE.md's "THE
 ACTUAL FIX FOR THE DATA-LOSS INCIDENT" section.
 
+A session of actually using the organized library (searching, filtering, accepting
+matches, bulk-editing) surfaced and fixed five more real bugs: a track could get
+permanently stuck at Match Found because "complete" wrongly required a track number
+that a genuine various-artists-compilation single could never resolve; search and
+the status-filter chips looked broken together because an isolated stats-tile filter
+silently scoped search results too, with no visual reminder; cover art was fetched
+from Cover Art Archive but never actually wired into the field the UI reads, and
+`isCurated()` blocked any already-matched track from ever getting it backfilled
+(fixed with a dedicated backfill pass, verified against the real Skrillex "Quest For
+Fire" album picking up its real cover); that backfill's own first real run then
+looked exactly like a hang with no progress indication, so it gained one; and system
+back from the track-detail screen exited the whole app instead of returning to
+Library. Also added, per direct request: a bulk "Approve" action next to the
+existing bulk "Edit" (both now full-width rectangular buttons, not a small corner
+icon) that reuses the single-track accept logic in one batched write, and an
+alphabetical/recently-updated sort control - see ANDROID ARCHITECTURE.md's "A BATCH
+OF REAL BUGS FOUND WHILE USING THE APP FOR REAL" section.
+
 ## Running it
 
 ```

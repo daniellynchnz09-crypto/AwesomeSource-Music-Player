@@ -155,11 +155,14 @@ object ReleaseResolver {
     /**
      * Returns a Map of file path -> proposed [TrackMetadata] for every file in the
      * group. `fetchCoverArt=false` skips the Cover Art Archive request entirely -
-     * cover fields fall back to whatever the file already has. Cover art isn't part
-     * of MusicBrainz's own rate-limited API, but it's still a real network round
-     * trip; during a bulk lookup pass that extra latency lands squarely on the
-     * slowest part of the whole operation for no benefit if nothing shows a preview
-     * yet. Fetch it JIT once the user actually accepts a match instead.
+     * cover fields fall back to whatever the file already has. [QueryGroup] passes
+     * `true` for its two call sites (the MusicBrainz auto-apply path and the
+     * Gemini-grounded confirmation path) specifically because both only run once a
+     * group is *already* confidently AUTO_MATCHED - the extra network round trip
+     * only ever happens for a release that's actually going to be used, never for a
+     * candidate under review that might get rejected. `false` remains available for
+     * call sites that build a proposal without a confirmed match (there are none
+     * today, but the parameter is kept rather than removed).
      */
     suspend fun resolveGroupToProposed(
         mbClient: MusicBrainzClient,
@@ -195,6 +198,11 @@ object ReleaseResolver {
                 year = yearFromDate(chosen.firstReleaseDate) ?: releaseInfo.year ?: track.year,
                 hasCoverArt = coverUri != null || track.hasCoverArt,
                 coverArtMime = if (coverUri != null) "image/jpeg" else track.coverArtMime,
+                // A per-track file's own embedded art (if any) takes precedence over
+                // the release-level cover per MUSIC ORGANIZATION.md ("per-track cover
+                // art can override the album's cover art") - only fills the gap when
+                // the file had none of its own.
+                coverArtPath = track.coverArtPath ?: coverUri?.path,
                 source = MetadataSource.ONLINE_LOOKUP,
             )
             return mapOf(track.path.value to proposed)
@@ -221,6 +229,7 @@ object ReleaseResolver {
                 year = release.year ?: track.year,
                 hasCoverArt = coverUri != null || track.hasCoverArt,
                 coverArtMime = if (coverUri != null) "image/jpeg" else track.coverArtMime,
+                coverArtPath = track.coverArtPath ?: coverUri?.path,
                 source = MetadataSource.ONLINE_LOOKUP,
             )
         }

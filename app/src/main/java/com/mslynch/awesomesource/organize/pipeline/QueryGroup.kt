@@ -129,7 +129,7 @@ class QueryGroup(
 
         if (decision.outcome == Scorer.Outcome.AUTO_APPLY && decision.chosen != null) {
             return try {
-                val proposed = ReleaseResolver.resolveGroupToProposed(mbClient, coverArtClient, withCandidates, decision.chosen, fetchCoverArt = false)
+                val proposed = ReleaseResolver.resolveGroupToProposed(mbClient, coverArtClient, withCandidates, decision.chosen, fetchCoverArt = true)
                 withCandidates.copy(status = FileStatus.AUTO_MATCHED, chosenReleaseId = decision.chosen.releaseId, proposedByPath = proposed)
             } catch (e: Exception) {
                 // Matched with high confidence but couldn't fetch the full release
@@ -152,7 +152,7 @@ class QueryGroup(
      * a details-fetch failure just means no draft is available, not a crash. */
     suspend fun resolveProposed(group: AlbumGroup, chosen: MbCandidate): Map<String, com.mslynch.awesomesource.organize.model.TrackMetadata> =
         try {
-            ReleaseResolver.resolveGroupToProposed(mbClient, coverArtClient, group, chosen, fetchCoverArt = false)
+            ReleaseResolver.resolveGroupToProposed(mbClient, coverArtClient, group, chosen, fetchCoverArt = true)
         } catch (e: Exception) {
             emptyMap()
         }

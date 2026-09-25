@@ -41,7 +41,7 @@ import java.time.Instant
  */
 class OrganizeLibrary(private val context: Context) {
 
-    enum class Phase { SCANNING, READING_TAGS, GROUPING, QUERYING }
+    enum class Phase { SCANNING, READING_TAGS, GROUPING, QUERYING, FETCHING_ART }
     data class Progress(val phase: Phase, val processed: Int, val total: Int)
 
     data class Options(
@@ -99,8 +99,41 @@ class OrganizeLibrary(private val context: Context) {
             processGroup(queryGroup, geminiClient, group)
             options.onProgress?.invoke(Progress(Phase.QUERYING, i + 1, groups.size))
         }
+        backfillMissingCoverArt(options)
 
         db.undoLogDao().completeSession(sessionId, Instant.now().toString())
+    }
+
+    /** Fetches cover art for any already-curated track that never got one - tracks
+     * matched before cover-art fetching existed, or whose fetch attempt found
+     * nothing archived at the time (Cover Art Archive gets new scans added over
+     * time, so a retry later can succeed where an earlier one didn't). `isCurated()`
+     * blocks these rows from a normal rescan forever, so this is the only path left
+     * to backfill them - runs after every `organize()`/`requeryTracks()` rather than
+     * needing a separate manual trigger. Grouped by release ID so an album with many
+     * tracks only downloads its cover once, not once per track. Never touches any
+     * other field on the row - see `TrackDao.updateCoverArtPath`.
+     *
+     * Reports [Phase.FETCHING_ART] progress by release count - found the hard way
+     * that leaving this silent made a real, ~100-release backfill sit at "Organizing…"
+     * with no visible change for several minutes after the querying phase's own
+     * progress bar had already reached 100%, indistinguishable from a hang. */
+    private suspend fun backfillMissingCoverArt(options: Options) {
+        val missing = db.trackDao().getCuratedMissingArt()
+        if (missing.isEmpty()) return
+        val byRelease = missing.filter { it.matchedReleaseId != null }.groupBy { it.matchedReleaseId!! }
+        val releaseIds = byRelease.keys.toList()
+        options.onProgress?.invoke(Progress(Phase.FETCHING_ART, 0, releaseIds.size))
+        for ((i, releaseId) in releaseIds.withIndex()) {
+            val coverUri = coverArtClient.fetchFullImage(releaseId)
+            val path = coverUri?.path
+            if (path != null) {
+                for (track in byRelease.getValue(releaseId)) {
+                    db.trackDao().updateCoverArtPath(track.path, path)
+                }
+            }
+            options.onProgress?.invoke(Progress(Phase.FETCHING_ART, i + 1, releaseIds.size))
+        }
     }
 
     /** Reads embedded tags when the format supports them; falls back to sidecar
@@ -239,11 +272,6 @@ class OrganizeLibrary(private val context: Context) {
         // answer, whatever the specific internal reason.
         val recognized = resolved.status == FileStatus.AUTO_MATCHED
         for (track in resolved.files) {
-            val withStatus = track.copy(
-                status = resolved.status,
-                statusDetail = resolved.statusDetail.ifEmpty { track.statusDetail },
-                source = if (recognized) MetadataSource.ONLINE_LOOKUP else track.source,
-            )
             // Persisted whenever recognized, regardless of whether the track's own
             // fields already look "complete" - a track can have every field filled
             // in (often from a bulk edit) while the confirmed match's own per-track
@@ -253,6 +281,14 @@ class OrganizeLibrary(private val context: Context) {
             // - not this function, and not `hasAllDetails()` alone. Storing a
             // proposal that happens to agree with the current fields is harmless.
             val proposed = if (recognized) resolved.proposedByPath[track.path.value] else null
+            val withStatus = track.copy(
+                status = resolved.status,
+                statusDetail = resolved.statusDetail.ifEmpty { track.statusDetail },
+                source = if (recognized) MetadataSource.ONLINE_LOOKUP else track.source,
+                // A release-level cover fetched just now (see ReleaseResolver) only
+                // ever fills a gap - a track's own embedded art always wins.
+                coverArtPath = track.coverArtPath ?: proposed?.coverArtPath,
+            )
             persistTrack(withStatus, proposed = proposed, matchedReleaseId = resolved.chosenReleaseId.takeIf { recognized })
         }
         return resolved
@@ -281,6 +317,7 @@ class OrganizeLibrary(private val context: Context) {
                 discoverAlbumSiblings(mbClient, resolved)
             }
         }
+        backfillMissingCoverArt(options)
     }
 
     /** Once a group is confidently matched to a real MusicBrainz release, checks
@@ -331,6 +368,7 @@ class OrganizeLibrary(private val context: Context) {
                     proposedTrackNumber = position,
                     proposedYear = release.year,
                     statusDetail = "Possibly part of \"${release.album ?: "this album"}\" - found via album sibling detection",
+                    updatedAt = Instant.now().toString(),
                 )
             )
         }
@@ -378,6 +416,7 @@ class OrganizeLibrary(private val context: Context) {
                 proposedTitle = proposed?.title,
                 proposedTrackNumber = proposed?.trackNumber,
                 proposedYear = proposed?.year,
+                updatedAt = Instant.now().toString(),
             )
         )
 

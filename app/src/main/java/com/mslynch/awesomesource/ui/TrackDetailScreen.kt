@@ -1,5 +1,6 @@
 package com.mslynch.awesomesource.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +50,12 @@ import com.mslynch.awesomesource.organize.persistence.entity.reviewStatus
 @Composable
 fun TrackDetailScreen(viewModel: MainViewModel, path: String, onBack: () -> Unit) {
     val track by viewModel.observeTrack(path).collectAsState(initial = null)
+    // Without this, the system back gesture/button had no in-app screen left to pop
+    // to (this Composable is swapped in over Library, not pushed onto a nav
+    // back stack) and fell through to finishing the whole Activity instead - a real
+    // gap that surfaced while testing on-device: pressing back here exited the app
+    // to the launcher rather than returning to the Library list.
+    BackHandler(onBack = onBack)
 
     Scaffold(
         topBar = {

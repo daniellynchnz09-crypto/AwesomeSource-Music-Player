@@ -59,6 +59,11 @@ data class TrackEntity(
     val proposedTitle: String? = null,
     val proposedTrackNumber: Int? = null,
     val proposedYear: Int? = null,
+    /** ISO instant of the last time this row's own fields (not just a rescan
+     * confirming nothing changed) were written - a scan, accept, or edit. Powers
+     * the Library screen's "recently updated" sort; never read for anything else,
+     * so a null value (rows written before this column existed) just sorts last. */
+    val updatedAt: String? = null,
 )
 
 /** True once a track has been matched (by the pipeline or a Gemini-grounded
@@ -92,9 +97,18 @@ fun TrackEntity.isCurated(): Boolean = matchedReleaseId != null || source == Met
  * silently discard a correction the pipeline already knows about (`proposedArtist`
  * is only ever populated when a track is `recognized` - see `OrganizeLibrary.processGroup`) -
  * so a real disagreement here downgrades an otherwise-"complete" track out of
- * APPROVED into MATCH_FOUND, surfacing the correction as a normal draft to accept. */
+ * APPROVED into MATCH_FOUND, surfacing the correction as a normal draft to accept.
+ *
+ * Deliberately does NOT require `trackNumber` - found via a real matched single
+ * ("Hysteric" by Badklaat & PYKE, off a various-artists compilation) whose position
+ * within that release could never be resolved by title-matching or a filename
+ * fallback, even though artist/album/title all agreed with the confirmed match. A
+ * hard trackNumber requirement meant "Accept proposed match" could copy every
+ * field and still leave the track stuck at MATCH_FOUND forever, with no way for the
+ * user to ever clear it - a track number that's genuinely unknowable shouldn't
+ * block a confident match from being treated as done. */
 fun TrackEntity.reviewStatus(): ReviewStatus {
-    val hasAllDetails = !artist.isNullOrBlank() && !album.isNullOrBlank() && !title.isNullOrBlank() && trackNumber != null
+    val hasAllDetails = !artist.isNullOrBlank() && !album.isNullOrBlank() && !title.isNullOrBlank()
     val artistConfirmed = proposedArtist.isNullOrBlank() || proposedArtist.trim().equals(artist?.trim(), ignoreCase = true)
     return ReviewStatus.compute(hasAllDetails && artistConfirmed, recognized = matchedReleaseId != null)
 }

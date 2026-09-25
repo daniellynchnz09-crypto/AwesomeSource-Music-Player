@@ -74,6 +74,7 @@ private fun phaseLabel(phase: OrganizeLibrary.Phase): String = when (phase) {
     OrganizeLibrary.Phase.READING_TAGS -> "Reading tags"
     OrganizeLibrary.Phase.GROUPING -> "Grouping albums"
     OrganizeLibrary.Phase.QUERYING -> "Looking up matches"
+    OrganizeLibrary.Phase.FETCHING_ART -> "Fetching album art"
 }
 
 private fun phaseColor(phase: OrganizeLibrary.Phase): Color = when (phase) {
@@ -81,4 +82,5 @@ private fun phaseColor(phase: OrganizeLibrary.Phase): Color = when (phase) {
     OrganizeLibrary.Phase.READING_TAGS -> Color(0xFF6A1B9A)
     OrganizeLibrary.Phase.GROUPING -> Color(0xFF00897B)
     OrganizeLibrary.Phase.QUERYING -> Color(0xFFEF6C00)
+    OrganizeLibrary.Phase.FETCHING_ART -> Color(0xFFC2185B)
 }

@@ -48,7 +48,10 @@ import com.mslynch.awesomesource.organize.persistence.entity.TrackEntity
     // destructive fallback, since by this point the user has a real, hard-won,
     // fully-organized ~1368-track library (review statuses, accepted matches, bulk
     // edits) that a silent wipe would have thrown away for a purely additive column.
-    version = 3,
+    // Bumped 3 -> 4: TrackEntity gained updatedAt for the Library screen's "recently
+    // updated" sort - same reasoning, a real migration rather than the destructive
+    // fallback.
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -69,6 +72,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN updatedAt TEXT")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -76,7 +85,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "awesomesource.db",
                 )
-                    .addMigrations(MIGRATION_2_3)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                     // Still kept as a safety net for any version jump the explicit
                     // migrations above don't cover (e.g. a much older version 1 db).
                     .fallbackToDestructiveMigration(true)
