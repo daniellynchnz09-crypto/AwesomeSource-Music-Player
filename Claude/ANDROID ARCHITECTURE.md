@@ -610,6 +610,46 @@ not a safe, side-effect-free operation on a library that has any accepted matche
 manual edits in it, and tag-*writing* is now a meaningfully higher-priority gap to
 close than its position in the To Do list previously suggested.
 
+THE ACTUAL FIX FOR THE DATA-LOSS INCIDENT: RESCANS NOW SKIP ALREADY-CURATED TRACKS.
+The user corrected the framing above before any fix was written: the intended design
+was never "a rescan is destructive until tag-writing exists" - it was "the database
+*is* the protected, authoritative record once a track has details added to it,
+exactly like a sidecar list document for every format, not just WAV." That's a real,
+narrower, correctly-scoped bug in the rescan itself, entirely independent of whether
+files ever get written to. Fixed with a new `TrackEntity.isCurated()`
+(`matchedReleaseId != null || source == MetadataSource.MANUAL_ENTRY`) and a check at
+the very top of `OrganizeLibrary.organize()`'s tag-reading loop: if a file already has
+a curated row, the loop skips it entirely - no re-read, no re-persist, and it's left
+out of the grouping/querying phases too, since there's nothing left to usefully
+resolve for it. A track that has never been matched or edited is still refreshed
+normally (needed for exactly the kind of recovery this session already relied on -
+recovering the 31 previously-unreadable m4a files, or picking up `coverArtPath` for
+tracks nobody has touched yet). Verified for real by deliberately re-running the same
+"Choose Folder & Organize" rescan that caused the original incident, on the same real
+library, and confirming the Quest For Fire tracks' artist/`proposedArtist` values
+survived this time.
+
+SMALL UI REFINEMENTS TO THE ORGANIZE PROGRESS BAR AND STATS BAR: the percentage text
+now renders in the same color as its phase's segment of the bar
+(`OrganizeProgressBar`'s `phaseColor(progress.phase)`, applied to both), rather than
+the default text color. `ReviewStatus.NO_MATCH_FOUND`'s label was shortened from "No
+Match Found" to "No Match" - the longer label was cramped against its own stats-tile
+edges at `labelSmall` size (technically fit on one line, so `maxLines = 2` never
+actually engaged); shortening the shared label (rather than special-casing a line
+break only in the stats tile) was the user's own preference once asked, and keeps the
+tile/chip/row/search-matching text identical everywhere it's read from, as it always
+has been.
+
+A DEFAULT ALBUM-ART PLACEHOLDER, PER THE USER'S OWN REQUEST TO "MIX THE FEATURES OF AN
+X AND A FACE AND A TREBLE CLEF": `res/drawable/default_album_art.xml`, a hand-authored
+vector drawable - a circular head outline, two dot eyes, an X for the mouth, and two
+small curls (top and bottom) standing in for a treble clef's spiral and tail -
+rendered via an `Icon` composable in `TrackArt` so it tints to the current theme
+automatically, replacing the previous blank tinted square for any track with no
+`coverArtPath`. Verified by screenshot on the real emulator (not assumed to render
+correctly from the path data alone) - the result reads clearly as a small, slightly
+quirky face, exactly the intended "blend," not a garbled attempt at a literal glyph.
+
 LESSONS TO CARRY FORWARD FROM THE EXPO ATTEMPT (found and verified for real during
 that pass - see `legacy-expo-attempt/README.md` for the source files; re-verify
 each since time may have passed, but don't reintroduce bugs already found once):

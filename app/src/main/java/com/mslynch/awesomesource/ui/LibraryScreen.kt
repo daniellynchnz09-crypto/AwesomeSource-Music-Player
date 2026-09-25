@@ -64,11 +64,13 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.mslynch.awesomesource.R
 import com.mslynch.awesomesource.organize.model.ReviewStatus
 import com.mslynch.awesomesource.organize.persistence.entity.TrackEntity
 import com.mslynch.awesomesource.organize.persistence.entity.reviewStatus
@@ -534,9 +536,10 @@ private fun TrackRow(track: TrackEntity, selected: Boolean, inSelectionMode: Boo
  * `TrackEntity.coverArtPath`'s doc comment), loaded via Coil (handles local
  * `file://`-style paths out of the box, with its own memory/disk caching so this
  * doesn't re-decode the same image on every recomposition/scroll). Falls back to a
- * plain tinted square for tracks with no embedded art - deliberately not an icon
- * glyph, since this project only depends on `material-icons-core`, not the
- * extended icon set a music-note glyph would need. */
+ * custom placeholder mark (`R.drawable.default_album_art`, a face/X/treble-clef
+ * hybrid per the user's own request) for tracks with no embedded art yet, instead of
+ * a blank square - this project only depends on `material-icons-core`, not the
+ * extended icon set a stock music-note glyph would need, hence the custom drawable. */
 @Composable
 private fun TrackArt(coverArtPath: String?, modifier: Modifier = Modifier) {
     Box(
@@ -552,6 +555,13 @@ private fun TrackArt(coverArtPath: String?, modifier: Modifier = Modifier) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
+        } else {
+            Icon(
+                painter = painterResource(R.drawable.default_album_art),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxSize().padding(9.dp),
+            )
         }
     }
 }
@@ -560,7 +570,10 @@ internal fun reviewStatusLabel(status: ReviewStatus): String = when (status) {
     ReviewStatus.APPROVED -> "Approved"
     ReviewStatus.VERIFY -> "Verify"
     ReviewStatus.MATCH_FOUND -> "Match Found"
-    ReviewStatus.NO_MATCH_FOUND -> "No Match Found"
+    // Shortened from "No Match Found" - the longer label was cramped against the
+    // stats tile's own edges at labelSmall size (the shared label, not just the
+    // tile display, since search-by-status matches against this same string).
+    ReviewStatus.NO_MATCH_FOUND -> "No Match"
 }
 
 internal fun reviewStatusColor(status: ReviewStatus): Color = when (status) {

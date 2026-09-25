@@ -61,6 +61,22 @@ data class TrackEntity(
     val proposedYear: Int? = null,
 )
 
+/** True once a track has been matched (by the pipeline or a Gemini-grounded
+ * confirmation) or manually/bulk-edited by the user - the point past which a rescan
+ * must never touch it again. The database row *is* the protected, authoritative
+ * record for a curated track (never the file itself, which this app never writes
+ * to) - a rescan re-reading the file's raw tags and blindly overwriting an already-
+ * curated row would silently discard real work (an accepted match, a manual
+ * correction, a still-pending proposed draft) for no reason, since nothing about
+ * the file itself ever changes just because the app scanned it again. See
+ * `OrganizeLibrary.organize()`'s tag-reading loop, which skips re-processing any
+ * track this returns true for entirely - not just protecting its stored fields, but
+ * not re-grouping/re-querying it either, since there is nothing left for either
+ * scan to usefully do. Not a stand-in for tag-writing - it's independent of whether
+ * the file itself ever gets updated, and would be exactly as necessary even if it
+ * did, since a rescan is not the same event as an intentional file edit. */
+fun TrackEntity.isCurated(): Boolean = matchedReleaseId != null || source == MetadataSource.MANUAL_ENTRY
+
 /** The four-way review classification the Library screen groups/filters by,
  * recomputed fresh from this entity's own current fields every time rather than
  * stored as its own column - see [ReviewStatus]'s doc comment for why: a manual

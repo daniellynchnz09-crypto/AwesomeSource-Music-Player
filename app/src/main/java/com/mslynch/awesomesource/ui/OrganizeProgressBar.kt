@@ -59,6 +59,7 @@ fun OrganizeProgressBar(progress: OrganizeLibrary.Progress, modifier: Modifier =
                 "$percentText%",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
+                color = phaseColor(progress.phase),
             )
             Text(
                 "${progress.processed}/$totalText",

@@ -18,6 +18,7 @@ import com.mslynch.awesomesource.organize.persistence.AppDatabase
 import com.mslynch.awesomesource.organize.persistence.entity.ScanSessionEntity
 import com.mslynch.awesomesource.organize.persistence.entity.TrackArtistCreditEntity
 import com.mslynch.awesomesource.organize.persistence.entity.TrackEntity
+import com.mslynch.awesomesource.organize.persistence.entity.isCurated
 import com.mslynch.awesomesource.organize.persistence.entity.toTrackMetadata
 import com.mslynch.awesomesource.organize.scanner.Scanner
 import com.mslynch.awesomesource.organize.tags.AudioTagReader
@@ -70,6 +71,18 @@ class OrganizeLibrary(private val context: Context) {
 
         val tracks = mutableListOf<TrackMetadata>()
         for ((i, bare) in bareFiles.withIndex()) {
+            // A previously matched or manually/bulk-edited track is protected from
+            // this rescan entirely - re-reading the file's raw tags and persisting
+            // them would silently overwrite real curation work with data nobody
+            // asked to restore, since the file itself never changed just because a
+            // rescan happened. See TrackEntity.isCurated()'s doc comment - this is
+            // a database-protection fix, independent of (not blocked on) writing
+            // tags back into files.
+            val existing = db.trackDao().getByPath(bare.path.value)
+            if (existing != null && existing.isCurated()) {
+                options.onProgress?.invoke(Progress(Phase.READING_TAGS, i + 1, bareFiles.size))
+                continue
+            }
             val track = resolveInitialMetadata(bare, options.libraryType)
             tracks.add(track)
             persistTrack(track)
