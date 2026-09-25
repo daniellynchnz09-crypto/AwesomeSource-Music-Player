@@ -828,9 +828,7 @@ on-device database/UI before being fixed, not guessed at:
    ~100-release backfill has no per-track granularity to report, so the first
    on-device test sat at "Organizing…" with the querying phase's own progress bar
    already at 100% and no visible change for over three minutes - not actually
-   stuck (it finished, and the user's own "I think I crashed the app" report may
-   well have been this exact scenario, though it couldn't be confirmed without a
-   log from their device), but indistinguishable from one. Added a fifth
+   stuck, but indistinguishable from one. Added a fifth
    `OrganizeLibrary.Phase.FETCHING_ART` that reports progress per release fetched,
    so the existing progress bar now visibly keeps moving through this phase instead
    of appearing frozen.
@@ -842,21 +840,24 @@ on-device database/UI before being fixed, not guessed at:
    (`MainViewModel.acceptProposedMatch`), refactored into a shared
    `TrackEntity.withProposedAccepted()` and applied to every selected track in one
    batched `upsertAll` write rather than one coroutine/DB-write/reactive-refresh per
-   track - both for performance (a large selection accepted one row at a time is
-   suspected to be at least part of what caused the reported crash/hang) and so it
-   can never force a status directly: a track with nothing proposed (e.g. a genuine
-   No Match row) is a no-op, since every field falls back to its own existing
-   value. This was a deliberate answer to the user's own follow-up question ("what's
-   the point in the status filters if bulk-approve does the same thing?") - it
-   doesn't; Approve only ever accelerates accepting a draft a track already earned
-   through real matching, so the filters still mean exactly what they always meant.
+   track, and so it can never force a status directly: a track with nothing
+   proposed (e.g. a genuine No Match row) is a no-op, since every field falls back
+   to its own existing value. This was a deliberate answer to the user's own
+   follow-up question ("what's the point in the status filters if bulk-approve does
+   the same thing?") - it doesn't; Approve only ever accelerates accepting a draft
+   a track already earned through real matching, so the filters still mean exactly
+   what they always meant.
 5. **System back from the track-detail screen exited the whole app.** Found
-   incidentally while testing the above (not something the user had reported yet) -
-   `TrackDetailScreen` is swapped in over `LibraryScreen` directly rather than
-   pushed onto a navigation back stack, so system back had nothing to pop to and
-   fell through to finishing the Activity. Fixed with a plain `BackHandler` that
-   calls the same `onBack` the in-app back arrow already used. Verified via
-   `dumpsys window`'s focused-activity check before and after.
+   incidentally while testing the above (not something the user had reported yet,
+   though the user later confirmed this was almost certainly the real cause of an
+   earlier "I think I crashed the app" report - accepting matches one at a time and
+   hitting back to return to the list would have silently exited the app instead,
+   which reads exactly like a crash) - `TrackDetailScreen` is swapped in over
+   `LibraryScreen` directly rather than pushed onto a navigation back stack, so
+   system back had nothing to pop to and fell through to finishing the Activity.
+   Fixed with a plain `BackHandler` that calls the same `onBack` the in-app back
+   arrow already used. Verified via `dumpsys window`'s focused-activity check
+   before and after.
 
 Also added, per direct request: an alphabetical/"recently updated" sort control
 (`SortMode`, a new `updatedAt` column bumping the schema to a real, non-destructive

@@ -106,6 +106,10 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
     list, since dismissal is only wired to the screen's own in-app back arrow~~ -
     done: a plain `BackHandler` now calls the same `onBack` the in-app arrow already
     used. Verified via `dumpsys window`'s focused-activity check before and after.
+    The user later confirmed this was almost certainly the real cause of an earlier
+    "I think I crashed the app" report - accepting matches on tracks one at a time
+    and hitting back to return to the list would have silently exited the app
+    instead, which reads exactly like a crash.
 8i. ~~Automatically re-query MusicBrainz/Gemini after a bulk edit fills in enough
     detail to make a track matchable, and look for other tracks in the same folder
     that plausibly belong to the same now-confirmed album~~ - done: see ANDROID
@@ -191,10 +195,9 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
 8q. ~~Bulk multi-select gained an "Approve" action next to Edit, and the tiny
     corner edit icon became a full-width rectangular button~~ - done, per direct
     request. Approve reuses the single-track accept logic in one batched write per
-    tap rather than one per track (also addresses at least part of a reported
-    app hang/crash from approving many tracks individually) and can never force a
-    status directly - a track with nothing proposed is a no-op, so the status
-    filters still mean exactly what they always meant.
+    tap rather than one per track, and can never force a status directly - a track
+    with nothing proposed is a no-op, so the status filters still mean exactly what
+    they always meant.
 8r. ~~Alphabetical / "recently updated" sort for the Library list~~ - done, per
     direct request. Added a real `updatedAt` column via `Migration(3, 4)`.
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
