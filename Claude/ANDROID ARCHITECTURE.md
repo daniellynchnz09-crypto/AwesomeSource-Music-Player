@@ -321,6 +321,36 @@ with" - the file genuinely has no artist tag and none of its siblings do either,
 this is honest, recoverable-by-the-user information now instead of a permanent dead
 end).
 
+SECOND MISSING-FILES CHECK (RE-VERIFIED, STILL NOTHING LOST): the user asked again
+later in the same vein - "507 approved + 432 verified + 39 match found + 390 no match
+= 1368, why isn't that closer to 2,000?" - after the library had grown slightly (2547
+files now, up from 2549 at a different point, since the user keeps adding/removing
+music). Re-investigated from scratch rather than assuming the earlier fix still
+covered it: pulled the real on-device database directly (`adb exec-out run-as ... cat
+databases/awesomesource.db`, using `exec-out` specifically - a plain `adb shell ... >
+file` redirect corrupts binary pulls on Windows/git-bash by translating line endings)
+and compared its 1368 rows against a live `adb shell find` over the actual SD card
+folder, broken down per subfolder. `Orch music` alone looked alarming in isolation -
+830 `.m4a` files on disk but only 468 tracked, a 44% loss with no aif/junk excuse this
+time. Rather than guess, added temporary diagnostic logging to `Scanner.walk()`
+(entries returned per folder, plus counters for null names/zero-byte/non-audio
+skips), rebuilt, and re-ran the exact scan while capturing logcat: `DIAG 'Orch music'
+entries=987 added=621` - `dir.listFiles()` itself returned the full, correct 987
+rows (matching `adb shell content query`'s own row count against the raw
+`DocumentsProvider`, checked earlier as a sanity check), and every one of the 366
+"missing" entries was accounted for by the existing `name.startsWith(".")` skip -
+confirmed directly via `find -name "._*"`: exactly 365 AppleDouble resource-fork
+siblings (`._26 Australasian Harrier.m4a` etc.) plus one `.DS_Store`. Nothing was
+silently dropped anywhere in the pipeline; the skip is correct, existing, intentional
+behavior. Removed the diagnostic logging afterward (kept the shipped `Scanner.kt`
+unchanged from before this investigation) and confirmed the true number
+independently: `find` filtered by the app's own exact criteria (matches
+`Scanner.AUDIO_EXTENSIONS`, doesn't start with `.`, size > 0) returns exactly 1368
+files - identical to the database row count. The "~2,000+" the user was comparing
+against was always counting AppleDouble siblings, GarageBand bundle internals, and
+other non-audio content the app was never meant to track; 1368 is the correct,
+complete total for real, trackable audio files in the library today.
+
 HIGH REFRESH RATE SUPPORT: `MainActivity.requestHighRefreshRate()` asks the display
 for its highest-refresh-rate mode at the *same* physical resolution the device is
 already using (never a different resolution) - added because several OEMs don't
