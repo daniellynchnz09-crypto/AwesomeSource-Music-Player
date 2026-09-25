@@ -105,6 +105,36 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
     button from the track detail screen exits the app entirely instead of returning
     to the Library list, since dismissal is only wired to the screen's own in-app
     back arrow.
+8i. ~~Automatically re-query MusicBrainz/Gemini after a bulk edit fills in enough
+    detail to make a track matchable, and look for other tracks in the same folder
+    that plausibly belong to the same now-confirmed album~~ - done: see ANDROID
+    ARCHITECTURE.md's "AUTOMATIC RE-QUERY AFTER A BULK EDIT, PLUS ALBUM-SIBLING
+    DISCOVERY" section. Verified end-to-end against the user's own real Skrillex
+    "Quest For Fire" album (all 15 tracks correctly flipped to Approved against a
+    real MusicBrainz release id); sibling discovery correctly proposed nothing extra
+    since every real track was already selected. This also gives 8g's Gemini cache a
+    real, if incidental, re-verification path going forward: any future bulk-edit
+    re-query against an already-graded ambiguous album will now exercise the cache
+    hit path for real.
+8j. ~~Investigated why real Skrillex "Quest For Fire" collaboration tracks (e.g.
+    "Ratata" = "Skrillex, Missy Elliott & Mr. Oizo") were being marked Approved with
+    just the flat bulk-edited "Skrillex" artist~~ - done: found and fixed a real,
+    foundational, pre-existing bug, not something this session introduced - see
+    ANDROID ARCHITECTURE.md's "A REAL FOUNDATIONAL BUG FOUND VIA THE SKRILLEX ALBUM"
+    section. `MediumDto.tracks` had the wrong JSON key name (`"track"` instead of the
+    real API's `"tracks"`), so `getReleaseTracklist()`'s per-track data has been
+    empty on every release lookup this app has ever made, silently defeating
+    per-track artist/title/track-number correction for every multi-track match, not
+    just this album. Also fixed `TrackEntity.reviewStatus()` (the single un-persisted
+    formula every screen reads) to treat a `proposedArtist` that disagrees with the
+    real `artist` as "not actually confirmed", so a bulk-edited-complete track with a
+    real collaboration correction available now correctly lands on Match Found
+    instead of Approved. Verified end-to-end against the real album: 13 of 15 tracks
+    correctly moved from Approved to Match Found with the real collaboration credit
+    in the proposed-match card, the 2 genuinely solo tracks stayed Approved, and this
+    is likely to have quietly improved artist-credit accuracy for every other
+    already-matched multi-track album in the library too, though that wasn't
+    separately re-verified this pass.
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
    needs to be built once playback (Media3/ExoPlayer) is wired up.
 10. The design pass (Neo-Aero/Dark-Aero/skeuomorphic per Claude/App DESIGN.md) is

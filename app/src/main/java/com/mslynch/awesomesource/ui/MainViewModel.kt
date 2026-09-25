@@ -193,7 +193,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * field", not "clear it" - unlike the single-track edit form (which is always
      * pre-filled with the current values, so every field is always an explicit
      * choice), a bulk form starts empty and the tracks it applies to may well
-     * already disagree on a field the user isn't trying to change. */
+     * already disagree on a field the user isn't trying to change.
+     *
+     * Once saved, automatically re-queries MusicBrainz/Gemini for exactly these
+     * tracks - per the user's own follow-up request, filling in Album/Album Artist
+     * is very often exactly the missing piece that turns an unmatchable track into a
+     * confidently-matchable one, and re-running that shouldn't need a full library
+     * rescan. A confident match also triggers a search for other files in the same
+     * folder that plausibly belong to the same album (see
+     * `OrganizeLibrary.discoverAlbumSiblings`) - flagged as drafts for the user to
+     * accept, never auto-applied. */
     fun bulkUpdateTrackDetails(
         paths: Set<String>,
         artist: String?,
@@ -217,6 +226,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             db.trackDao().upsertAll(updated)
+            withContext(Dispatchers.IO) {
+                organizer.requeryTracks(
+                    paths,
+                    OrganizeLibrary.Options(
+                        musicBrainzContact = musicBrainzContact.ifBlank { null },
+                        geminiApiKey = geminiApiKey.ifBlank { null },
+                    ),
+                )
+            }
         }
     }
 

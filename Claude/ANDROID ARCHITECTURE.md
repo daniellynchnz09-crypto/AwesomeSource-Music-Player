@@ -415,6 +415,140 @@ fixed, recorded so they aren't repeated):
    CPU instant was never conclusively determined - worth watching for on a future
    large rescan.
 
+AUTOMATIC RE-QUERY AFTER A BULK EDIT, PLUS ALBUM-SIBLING DISCOVERY: the user's own
+suggestion, after using the bulk-edit feature for real to tag their actual Skrillex
+"Quest For Fire" album - "after they are edited the system will search again to see
+if that list of tracks are part of an album ... even if they don't select all the
+tracks in the album the software will notice the pattern and will see if they can
+find the names of the other tracks." Confirmed via three clarifying questions before
+building: re-query happens automatically right after save (not deferred to the next
+full rescan), a sibling is only proposed when a *confirmed MusicBrainz release*
+specifically calls for it (not a looser folder-plus-filename heuristic), and a
+sibling is always flagged as a draft for the user to accept, never auto-applied -
+consistent with every other match in this app.
+
+`MainViewModel.bulkUpdateTrackDetails` now calls a new `OrganizeLibrary.requeryTracks(paths,
+options)` right after its `upsertAll`. `requeryTracks` loads the edited entities back
+out of the database, converts them to `TrackMetadata` via a new
+`TrackEntity.toTrackMetadata()` (the reverse of `persistTrack`'s existing mapping,
+dropping the `proposed*`/`matchedReleaseId` fields that have no `TrackMetadata`
+equivalent - a re-query starts from a track's own real fields only), regroups them
+with the same `AlbumGrouper.groupIntoAlbums` a full scan uses, and runs each group
+through the *same* `processGroup` (MusicBrainz -> Gemini-ground -> persist) that
+`organize()` already used - no separate matching logic was written. This required
+changing `processGroup` from `private suspend fun ... : Unit` to returning the
+resolved `AlbumGroup`, which `organize()`'s own loop simply discards (source-
+compatible, no other call site changes).
+
+When a re-queried group comes back `AUTO_MATCHED`, `discoverAlbumSiblings` fetches
+that release's full tracklist (`MusicBrainzClient.getReleaseTracklist`, the same call
+`ReleaseResolver` already makes to build proposed drafts) and compares its track
+positions against the positions the edited group's own files already claim. Any
+release position nobody in the group claimed is a concrete, MusicBrainz-confirmed
+signal that another track might be sitting nearby - at that point, and only then,
+does it look at other files in the *same immediate folder* (`TrackDao.getPathsUnderFolder`,
+narrowed to direct children in Kotlin since SQLite has no portable "no further '/'"
+clause) and fuzzy-matches each one's title against the release's still-unclaimed
+positions (`ReleaseResolver.matchTitleToPosition`, a public wrapper around the exact
+same title-matching heuristic `resolveGroupToProposed` already used internally). A
+sibling that matches gets `matchedReleaseId` and `proposed*` fields set directly (its
+real fields are never touched), landing it as an ordinary MATCH_FOUND draft the user
+reviews through the existing accept-match flow - not a new UI path.
+
+Verified end-to-end against the user's own real data, not synthetic fixtures:
+selected all 15 tracks of the user's actual "01 Leave Me like This.wav" ... "15 Still
+Here (With the ones that I came with).wav" folder (already bulk-tagged
+`albumArtist=Skrillex`/`album=Quest For Fire` in an earlier turn, but still sitting
+at INSUFFICIENT_INFO because `artist` itself was blank), added `artist=Skrillex`
+through the bulk-edit dialog, and saved. The re-query ran automatically and near-
+instantly (the warm `mb_query_cache` from earlier sessions almost certainly serving
+this exact release lookup without a live network round trip) and all 15 tracks
+flipped to `AUTO_MATCHED` against a real MusicBrainz release id
+(`7033dfa3-0d39-4d3f-9378-01a95a37f32e`), landing correctly on APPROVED (505 -> 520
+in the stats bar) since every field was already complete. Sibling discovery
+correctly found nothing to propose (`0` rows with a sibling-detection `statusDetail`)
+because all 15 real tracks of the release were already selected - the right
+behavior, not a false negative, and confirmed by checking the database directly
+rather than trusting the UI alone. Screenshot:
+`bulk_edit_requery_auto_matched.png`. Real testing-process lessons from this same
+session, not about the feature itself: (1) after editing `LibraryScreen.kt`/
+`GeminiGroundingClient.kt`/`OrganizeLibrary.kt` earlier, `assembleDebug` was run
+before this feature was even started, so the stale-APK mistake from the previous
+entry did not recur here; (2) a Compose `OutlinedTextField` with focus consumed the
+*first* tap/long-press on anything below it (defocusing/dismissing the IME) rather
+than passing that gesture through - every UI automation step after typing into the
+search box needed either an extra throwaway tap to defocus first, or (better,
+discovered partway through) computing exact coordinates fresh from `uiautomator
+dump` after each action rather than reusing screenshot-derived estimates, since
+scroll position and row bounds shifted in ways plain visual inspection kept
+misjudging; (3) the system back button from the plain Library root screen exits the
+whole activity (expected Android behavior for a start destination with no back
+stack, not a bug) and destroys all transient Compose state (multi-select, search
+text, filter chips) - costly to rediscover mid-selection, cheap to avoid by never
+pressing back when a multi-step selection is in progress.
+
+A REAL FOUNDATIONAL BUG FOUND VIA THE SKRILLEX ALBUM: PER-TRACK COLLABORATION CREDITS
+WERE NEVER ACTUALLY WORKING. The user noticed several "Quest For Fire" tracks that
+are real collaborations (e.g. "Ratata" is genuinely "Skrillex, Missy Elliott & Mr.
+Oizo") had just been marked Approved with the flat bulk-edited "Skrillex" artist, and
+asked why the system hadn't noticed. Root-caused in two layers rather than patched at
+the surface:
+
+1. `MediumDto.tracks` (`organize/metadata/MusicBrainzModels.kt`) was annotated
+   `@Json(name = "track")` (singular). A live lookup against the real MusicBrainz API
+   (`curl .../release/<id>?inc=recordings+artist-credits&fmt=json`, confirmed both by
+   manual inspection and by fetching this exact release) showed the real key is
+   `"tracks"` (plural). This single wrong string meant `MediumDto.tracks` silently
+   deserialized to `null` on *every* release lookup the app has ever made -
+   `MusicBrainzClient.getReleaseTracklist()`'s per-position tracklist has always been
+   empty, so every per-track title/artist/track-number correction in
+   `ReleaseResolver.resolveGroupToProposed()`'s multi-track branch silently fell back
+   to whatever the file was already tagged with. This bug predates this session
+   entirely and affected every prior successful multi-track match, not just this
+   album - it just happened to be invisible before now because falling back to the
+   existing tag values still "basically works" for solo tracks and for fields
+   (album/albumArtist/year) that come from the release level rather than a specific
+   track's position. Fixed by correcting the `@Json` name; verified by re-running the
+   exact same bulk-edit re-query against the real album afterward and confirming
+   `proposedArtist` was correctly populated with the real collaboration credit for 13
+   of 15 tracks, and correctly left blank for the 2 genuinely solo tracks ("Warped
+   Tour '05", "Hazel Theme") - matching the live MusicBrainz data exactly.
+
+2. Even with real per-track data flowing through, a second issue meant the
+   correction still wouldn't have surfaced: `TrackEntity.reviewStatus()` - the single
+   formula every screen reads, deliberately never persisted as its own column -
+   based "hasAllDetails" purely on whether `artist`/`album`/`title`/`trackNumber`
+   were non-blank, with no way to know a `proposedArtist` draft existed that
+   disagreed with the real `artist` field. A track bulk-edited to have every field
+   "complete" (even with an intentionally oversimplified flat artist) would satisfy
+   this and land on APPROVED - "nothing to do" - even once the pipeline had computed
+   a materially different, correct collaboration credit for it, because APPROVED
+   tracks are exactly the ones the UI never shows a proposed draft for. An initial
+   attempted fix added a `verifyArtistAgainstMatch` flag threaded through
+   `OrganizeLibrary.processGroup()`'s persist-time decision - this actually
+   worked at persist time (confirmed via a direct database read: `proposedArtist`
+   was populated with the correct collaboration credit) but was immediately
+   undone the moment anything re-read the track, since `TrackEntity.reviewStatus()`
+   recomputes fresh from the entity's own stored fields and knew nothing about that
+   one-off pipeline decision. Reverted that approach in favor of fixing the single
+   formula itself: `TrackEntity.reviewStatus()` now also requires `proposedArtist`
+   (when non-blank) to case/whitespace-insensitively match `artist` before counting
+   a track as having verified details, and `OrganizeLibrary.processGroup()` was
+   simplified back down to *always* persist the proposed draft whenever a track is
+   recognized, regardless of whether its own fields already look complete - letting
+   the one true formula, not the pipeline, decide APPROVED vs. MATCH_FOUND. This is
+   the same "recomputed fresh every time, no separate persisted status" principle
+   the review-status model was already built on, just correctly extended to a field
+   the original formula hadn't accounted for. Verified end-to-end for real: after
+   installing the corrected build, the stats bar updated *without re-running the
+   query at all* (520 -> 507 Approved, 26 -> 39 Match Found - exactly the 13 real
+   collaborations moving out of Approved) purely because
+   reviewStatus was recomputed from data already sitting in the database from the
+   prior (buggy-formula) run - concrete proof the single-recompute-formula
+   architecture works exactly as designed. Opening "Leave Me like This" afterward
+   showed a correct proposed-match card: "Artist: Skrillex & Bobby Raps". Screenshots:
+   `collab_tracks_flagged_match_found.png`, `collab_artist_proposed_match.png`.
+
 LESSONS TO CARRY FORWARD FROM THE EXPO ATTEMPT (found and verified for real during
 that pass - see `legacy-expo-attempt/README.md` for the source files; re-verify
 each since time may have passed, but don't reintroduce bugs already found once):

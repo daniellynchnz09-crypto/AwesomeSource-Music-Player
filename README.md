@@ -69,6 +69,22 @@ available refresh rate, and the MusicBrainz query cache's already-working patter
 extended to Gemini grounding responses so rescanning an already-organized library
 stops re-spending Gemini quota on matches it already graded.
 
+A bulk edit now automatically re-queries MusicBrainz/Gemini for the tracks it just
+touched, and looks for other files in the same folder that plausibly belong to the
+same now-confirmed album (see ANDROID ARCHITECTURE.md's "AUTOMATIC RE-QUERY AFTER A
+BULK EDIT" section) - verified end-to-end against the user's real Skrillex "Quest For
+Fire" album. That same real-data test surfaced and led to fixing a genuine,
+foundational, pre-existing bug affecting every prior multi-track match in the app:
+`MediumDto.tracks` had the wrong JSON key name, so per-track title/artist/track-number
+data from a matched MusicBrainz release has silently never been available - only
+release-level fields (album/albumArtist/year) ever worked. Fixed the key, and also
+fixed `TrackEntity.reviewStatus()` (the single un-persisted formula every screen
+reads) to treat a `proposedArtist` that disagrees with the real artist as unconfirmed,
+so real collaboration credits (e.g. "Skrillex, Missy Elliott & Mr. Oizo") now
+correctly surface as a draft to accept instead of being silently discarded (see
+ANDROID ARCHITECTURE.md's "A REAL FOUNDATIONAL BUG FOUND VIA THE SKRILLEX ALBUM"
+section).
+
 ## Running it
 
 ```

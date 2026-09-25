@@ -144,6 +144,14 @@ object ReleaseResolver {
         return assigned
     }
 
+    /** Public wrapper around the same title-vs-tracklist-position matching
+     * [resolveGroupToProposed] uses internally, reused by
+     * `OrganizeLibrary.discoverAlbumSiblings` to decide whether a folder sibling's
+     * title plausibly matches one of a confirmed release's still-unclaimed track
+     * positions. Returns null below [TITLE_MATCH_THRESHOLD] rather than guessing. */
+    fun matchTitleToPosition(localTitle: String?, tracksByPosition: Map<Int, MusicBrainzClient.ReleaseTrack>): Int? =
+        bestMatchingPosition(localTitle, tracksByPosition)
+
     /**
      * Returns a Map of file path -> proposed [TrackMetadata] for every file in the
      * group. `fetchCoverArt=false` skips the Cover Art Archive request entirely -

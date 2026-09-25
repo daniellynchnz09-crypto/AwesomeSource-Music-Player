@@ -1,11 +1,14 @@
 package com.mslynch.awesomesource.organize.persistence.entity
 
+import android.net.Uri
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import com.mslynch.awesomesource.organize.model.FileStatus
+import com.mslynch.awesomesource.organize.model.LibraryPath
 import com.mslynch.awesomesource.organize.model.LibraryType
 import com.mslynch.awesomesource.organize.model.MetadataSource
 import com.mslynch.awesomesource.organize.model.ReviewStatus
+import com.mslynch.awesomesource.organize.model.TrackMetadata
 
 /**
  * One row per scanned file. `path` (library-root-relative, see LibraryPath) is the
@@ -56,11 +59,54 @@ data class TrackEntity(
  * recomputed fresh from this entity's own current fields every time rather than
  * stored as its own column - see [ReviewStatus]'s doc comment for why: a manual
  * edit (or accepting a draft) can never leave a stale status behind, because there
- * is nowhere for a stale status to be stored. */
+ * is nowhere for a stale status to be stored.
+ *
+ * `artistConfirmed` catches a real bug found via a bulk-edit on a real
+ * collaboration-heavy album: a track can already have every field filled in (often
+ * from a bulk edit that set one flat Artist across many tracks at once) while still
+ * being matched to a confirmed release whose own per-track artist credit disagrees -
+ * e.g. a track tagged "Skrillex" that the matched release's own tracklist says is
+ * really "Skrillex, Missy Elliott & Mr. Oizo". Treating that as "nothing to do" would
+ * silently discard a correction the pipeline already knows about (`proposedArtist`
+ * is only ever populated when a track is `recognized` - see `OrganizeLibrary.processGroup`) -
+ * so a real disagreement here downgrades an otherwise-"complete" track out of
+ * APPROVED into MATCH_FOUND, surfacing the correction as a normal draft to accept. */
 fun TrackEntity.reviewStatus(): ReviewStatus {
     val hasAllDetails = !artist.isNullOrBlank() && !album.isNullOrBlank() && !title.isNullOrBlank() && trackNumber != null
-    return ReviewStatus.compute(hasAllDetails, recognized = matchedReleaseId != null)
+    val artistConfirmed = proposedArtist.isNullOrBlank() || proposedArtist.trim().equals(artist?.trim(), ignoreCase = true)
+    return ReviewStatus.compute(hasAllDetails && artistConfirmed, recognized = matchedReleaseId != null)
 }
+
+/** The reverse of `OrganizeLibrary.persistTrack`'s `TrackMetadata -> TrackEntity`
+ * mapping - used to feed an already-persisted track back through the matching
+ * pipeline (grouping/MusicBrainz/Gemini) for a re-query after a manual edit, without
+ * needing a fresh SAF scan. `proposed*`/`matchedReleaseId` have no `TrackMetadata`
+ * equivalent and are intentionally dropped here; a re-query starts from the track's
+ * own real fields only. */
+fun TrackEntity.toTrackMetadata(): TrackMetadata = TrackMetadata(
+    uri = Uri.parse(uri),
+    path = LibraryPath(path),
+    fileFormat = fileFormat,
+    artist = artist,
+    albumArtist = albumArtist,
+    album = album,
+    title = title,
+    trackNumber = trackNumber,
+    trackTotal = trackTotal,
+    discNumber = discNumber,
+    discTotal = discTotal,
+    year = year,
+    genre = genre,
+    durationSeconds = durationSeconds,
+    hasCoverArt = hasCoverArt,
+    coverArtMime = coverArtMime,
+    composer = composer,
+    libraryType = libraryType,
+    fileSizeBytes = fileSizeBytes,
+    source = source,
+    status = status,
+    statusDetail = statusDetail,
+)
 
 /** One row per (name, role) artist credit on a track - see ArtistCredit's doc
  * comment for why a collab/remix/VIP splits into several of these per track. */

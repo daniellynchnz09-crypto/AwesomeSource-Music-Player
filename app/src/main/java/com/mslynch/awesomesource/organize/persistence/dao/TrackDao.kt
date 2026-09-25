@@ -19,6 +19,17 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE path = :path")
     suspend fun getByPath(path: String): TrackEntity?
 
+    @Query("SELECT * FROM tracks WHERE path IN (:paths)")
+    suspend fun getByPaths(paths: List<String>): List<TrackEntity>
+
+    /** Every track whose path starts with `folderPrefix/` - a superset of the
+     * immediate folder siblings (nested subfolders match too), narrowed down to
+     * direct children in Kotlin by the caller since SQLite has no portable way to
+     * express "no further '/' after the prefix" - see
+     * `OrganizeLibrary.discoverAlbumSiblings`. */
+    @Query("SELECT * FROM tracks WHERE path LIKE :folderPrefix || '/%' AND path NOT IN (:excludePaths)")
+    suspend fun getPathsUnderFolder(folderPrefix: String, excludePaths: List<String>): List<TrackEntity>
+
     @Query("SELECT * FROM tracks WHERE path = :path")
     fun observeByPath(path: String): Flow<TrackEntity?>
 

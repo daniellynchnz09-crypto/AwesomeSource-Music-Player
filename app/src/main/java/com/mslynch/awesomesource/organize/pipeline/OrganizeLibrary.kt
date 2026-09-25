@@ -8,6 +8,7 @@ import com.mslynch.awesomesource.organize.metadata.GeminiGroundingClient
 import com.mslynch.awesomesource.organize.metadata.MusicBrainzClient
 import com.mslynch.awesomesource.organize.model.AlbumGroup
 import com.mslynch.awesomesource.organize.model.FileStatus
+import com.mslynch.awesomesource.organize.model.LibraryPath
 import com.mslynch.awesomesource.organize.model.LibraryType
 import com.mslynch.awesomesource.organize.model.MetadataSource
 import com.mslynch.awesomesource.organize.model.ReviewStatus
@@ -17,6 +18,7 @@ import com.mslynch.awesomesource.organize.persistence.AppDatabase
 import com.mslynch.awesomesource.organize.persistence.entity.ScanSessionEntity
 import com.mslynch.awesomesource.organize.persistence.entity.TrackArtistCreditEntity
 import com.mslynch.awesomesource.organize.persistence.entity.TrackEntity
+import com.mslynch.awesomesource.organize.persistence.entity.toTrackMetadata
 import com.mslynch.awesomesource.organize.scanner.Scanner
 import com.mslynch.awesomesource.organize.tags.AudioTagReader
 import com.mslynch.awesomesource.organize.tags.EdmCreditParser
@@ -176,7 +178,11 @@ class OrganizeLibrary(private val context: Context) {
         )
     }
 
-    private suspend fun processGroup(queryGroup: QueryGroup, geminiClient: GeminiGroundingClient, group: AlbumGroup) {
+    /** Returns the resolved group (status, `chosenReleaseId`, drafts) after
+     * persisting every track in it - the return value is unused by `organize()`'s
+     * own scan loop but is what `requeryTracks` needs to decide whether
+     * `discoverAlbumSiblings` is worth running. */
+    private suspend fun processGroup(queryGroup: QueryGroup, geminiClient: GeminiGroundingClient, group: AlbumGroup): AlbumGroup {
         var resolved = queryGroup.queryGroup(group)
 
         // For an ambiguous (needs_review) result, ask Gemini to double-check
@@ -224,24 +230,105 @@ class OrganizeLibrary(private val context: Context) {
                 statusDetail = resolved.statusDetail.ifEmpty { track.statusDetail },
                 source = if (recognized) MetadataSource.ONLINE_LOOKUP else track.source,
             )
-            val reviewStatus = ReviewStatus.compute(withStatus.hasAllDetails(), recognized)
-            // A draft is only meaningful for MATCH_FOUND - APPROVED already has
-            // complete, confirmed details with nothing to propose, and VERIFY/
-            // NO_MATCH_FOUND never got a confident match to draft from at all.
-            val proposed = if (reviewStatus == ReviewStatus.MATCH_FOUND) resolved.proposedByPath[track.path.value] else null
-            persistTrack(withStatus, reviewStatus, proposed, matchedReleaseId = resolved.chosenReleaseId.takeIf { recognized })
+            // Persisted whenever recognized, regardless of whether the track's own
+            // fields already look "complete" - a track can have every field filled
+            // in (often from a bulk edit) while the confirmed match's own per-track
+            // data still disagrees (e.g. a real collaboration credit), and
+            // `TrackEntity.reviewStatus()` is what actually decides APPROVED vs.
+            // MATCH_FOUND from this, by comparing `proposedArtist` against `artist`
+            // - not this function, and not `hasAllDetails()` alone. Storing a
+            // proposal that happens to agree with the current fields is harmless.
+            val proposed = if (recognized) resolved.proposedByPath[track.path.value] else null
+            persistTrack(withStatus, proposed = proposed, matchedReleaseId = resolved.chosenReleaseId.takeIf { recognized })
+        }
+        return resolved
+    }
+
+    /** Re-runs grouping + MusicBrainz/Gemini matching for an already-scanned set of
+     * tracks, identified by path, without touching the rest of the library or
+     * re-scanning the folder - for the case where a manual/bulk edit fills in enough
+     * new detail (e.g. Album + Album Artist) that a track which previously had
+     * insufficient info to search with now does. Reuses the exact same
+     * `AlbumGrouper`/`QueryGroup`/`processGroup` path a full `organize()` run uses,
+     * just seeded from the database instead of a fresh SAF scan. */
+    suspend fun requeryTracks(paths: Collection<String>, options: Options) {
+        if (paths.isEmpty()) return
+        val entities = db.trackDao().getByPaths(paths.toList())
+        if (entities.isEmpty()) return
+        val tracks = entities.map { it.toTrackMetadata() }
+
+        val mbClient = MusicBrainzClient(options.musicBrainzContact)
+        val geminiClient = GeminiGroundingClient(options.geminiApiKey, queryCacheDao = db.queryCacheDao())
+        val queryGroup = QueryGroup(mbClient, coverArtClient, db.queryCacheDao())
+
+        for (group in AlbumGrouper.groupIntoAlbums(tracks)) {
+            val resolved = processGroup(queryGroup, geminiClient, group)
+            if (resolved.status == FileStatus.AUTO_MATCHED && resolved.chosenReleaseId != null) {
+                discoverAlbumSiblings(mbClient, resolved)
+            }
         }
     }
 
-    /** `reviewStatus`/`proposed`/`matchedReleaseId` are omitted for the initial
-     * tag-reading-phase persist (before any group has been queried yet) - at that
-     * point nothing has been matched, so [ReviewStatus.compute] with
-     * `recognized = false` is the only correct answer, and it will be overwritten
-     * (upsert on conflict REPLACE) once [processGroup] actually resolves this
-     * track's group. */
+    /** Once a group is confidently matched to a real MusicBrainz release, checks
+     * whether that release has track positions the group's own files didn't claim -
+     * a strong, concrete signal (not a folder-name guess) that more of the same
+     * album might be sitting nearby unmatched. Only looks at files in the *same
+     * immediate folder* as the matched group, and only proposes a sibling as a
+     * MATCH_FOUND draft (never writes into its real fields) when its own title
+     * fuzzy-matches one of those specific unclaimed positions - per the user's
+     * explicit choice of "only if MusicBrainz confirms it" over a looser
+     * folder-plus-filename-pattern heuristic. A sibling already confidently matched
+     * to something else (`matchedReleaseId != null`) is left alone. */
+    private suspend fun discoverAlbumSiblings(mbClient: MusicBrainzClient, resolved: AlbumGroup) {
+        val releaseId = resolved.chosenReleaseId ?: return
+        val release = try { mbClient.getReleaseTracklist(releaseId) } catch (e: Exception) { return }
+        if (release.tracks.isEmpty()) return
+
+        val claimedPositions = resolved.files.mapNotNull { it.trackNumber }.toSet()
+        val missingTracks = release.tracks.filterKeys { it !in claimedPositions }
+        if (missingTracks.isEmpty()) return
+
+        val groupPaths = resolved.files.map { it.path.value }
+        val parents = resolved.files.mapNotNull { it.path.parent()?.value }.toSet()
+        val siblings = parents
+            .flatMap { parent -> db.trackDao().getPathsUnderFolder(parent, groupPaths).map { parent to it } }
+            .distinctBy { it.second.path }
+            // getPathsUnderFolder matches nested subfolders too (SQLite has no
+            // portable "no further '/'" clause) - keep only direct children.
+            .filter { (parent, sibling) -> !sibling.path.substringAfter("$parent/").contains('/') }
+            .map { it.second }
+
+        val usedPositions = mutableSetOf<Int>()
+        for (sibling in siblings) {
+            if (sibling.matchedReleaseId != null) continue
+            val remaining = missingTracks.filterKeys { it !in usedPositions }
+            if (remaining.isEmpty()) break
+            val siblingTitle = sibling.title ?: FilenameParser.parseFilename(LibraryPath(sibling.path)).title
+            val position = ReleaseResolver.matchTitleToPosition(siblingTitle, remaining) ?: continue
+            usedPositions.add(position)
+            val info = remaining.getValue(position)
+            db.trackDao().upsert(
+                sibling.copy(
+                    matchedReleaseId = releaseId,
+                    proposedArtist = info.artist?.ifEmpty { null } ?: release.artist,
+                    proposedAlbumArtist = release.artist,
+                    proposedAlbum = release.album,
+                    proposedTitle = ReleaseResolver.formatRemixTitle(info.title),
+                    proposedTrackNumber = position,
+                    proposedYear = release.year,
+                    statusDetail = "Possibly part of \"${release.album ?: "this album"}\" - found via album sibling detection",
+                )
+            )
+        }
+    }
+
+    /** `proposed`/`matchedReleaseId` are omitted for the initial tag-reading-phase
+     * persist (before any group has been queried yet) - at that point nothing has
+     * been matched, and it will be overwritten (upsert on conflict REPLACE) once
+     * [processGroup] actually resolves this track's group. [TrackEntity.reviewStatus]
+     * is always recomputed from the persisted fields, never decided here. */
     private suspend fun persistTrack(
         track: TrackMetadata,
-        reviewStatus: ReviewStatus? = null,
         proposed: TrackMetadata? = null,
         matchedReleaseId: String? = null,
     ) {

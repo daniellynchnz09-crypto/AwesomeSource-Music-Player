@@ -68,7 +68,16 @@ data class ArtistCreditDto(
 @JsonClass(generateAdapter = true)
 data class MediumDto(
     @Json(name = "track-count") val trackCount: Int? = null,
-    @Json(name = "track") val tracks: List<TrackDto>? = null,
+    // The real MusicBrainz API returns this key as "tracks" (plural) - confirmed
+    // via a live lookup. A prior "track" (singular) mapping here meant this field
+    // silently deserialized to null on every single release lookup ever made by
+    // this app, which in turn meant `MusicBrainzClient.getReleaseTracklist()`'s
+    // per-position tracklist was always empty and every per-track title/artist/
+    // trackNumber correction in `ReleaseResolver.resolveGroupToProposed` silently
+    // fell back to the track's own already-tagged values - found while
+    // investigating why a real collaboration-heavy album's per-track artist
+    // credits weren't being picked up during a bulk-edit re-query.
+    @Json(name = "tracks") val tracks: List<TrackDto>? = null,
     @Json(name = "position") val position: Int? = null,
 )
 
