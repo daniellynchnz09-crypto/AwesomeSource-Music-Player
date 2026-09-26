@@ -56,6 +56,69 @@ Sigurd Jorsalfar"`. One track (`09 Solveig's Song.wav`) had a pre-existing gap
 where `FilenameParser` had never actually extracted a title for it (blank, not
 just missing artist/album) - fixed by also setting `title = "Solveig's Song"`.
 
+## Fragments identified (album incomplete in the library, applied anyway)
+
+A follow-up pass re-checked every one of the 15 "not yet resolved" CDs below
+against the library's actual current gap list, since several of the original
+"fragment" hits from the first pass turned out to be false positives (generic
+movement names like "Allegro" colliding with an unrelated piece) or files
+already correctly tagged under a different, legitimate release. Filtering those
+out left exactly 7 genuinely blank/untagged files that do match a specific
+photographed CD's tracklist - applied per the user's instruction to fill in
+whatever can be identified even when the rest of that CD isn't digitized:
+
+- **10. Johann Strauss - More Waltzes & Polkas**: 2 of 9 tracks found blank -
+  `Orch music/Johan Strauss Jr - Tritsch Tratsch Polka.mp3` (track 2) and
+  `Orch music/Johan Strauss Jr - Perpetuum mobile, Musikalischer Scherz.mp3`
+  (track 9). Both had no title at all, not just missing artist/album -
+  `FilenameParser` apparently never handles this file set's
+  "Composer - Piece.mp3" naming pattern. Set
+  `artist = albumArtist = "Carl Michalski: Orchester der Wiener Volksoper"`,
+  `composer = "Johann Strauss II"`, `year = 1995`. The other 8
+  `Johan Strauss Jr - *.mp3` files (Annen Polka, Die Fledermaus, Kaiser Walzer,
+  etc.) are real Strauss pieces but not on this specific CD's tracklist -
+  left alone, since they likely belong to a different, unphotographed Strauss
+  compilation.
+- **17. The Mozart Collection Volume 4**: 1 of 9 tracks found -
+  `Orch music/Mozart - Symphony 29 .mp3` (blank title, matching the sleeve's
+  "Symphony No. 29 in A major, K201"). Set
+  `artist = albumArtist = "Alexander von Pitamic: Camerata Labacensis"`,
+  `year = 1991`. This file already had a stale, wrong MusicBrainz draft sitting
+  on it from an earlier scan (proposed as a Camargo Guarnieri piano piece,
+  "Ponteio no. 29" - a bad fuzzy match on the number "29" alone) which masked
+  the correction until it was cleared the same way `rejectProposedMatch` would.
+  A sibling file, `Mozart - Molto Allegro 40.mp3`, was deliberately NOT
+  attributed to CD 11 (Symphony *41*) despite the similar filename pattern -
+  its own filename says "40", a different symphony.
+- **18. Romantic Piano - Beethoven, Satie & Schubert**: 1 of 13 tracks found -
+  `Orch music/10 Moment Musical.wav`, already titled "Moment Musical" but
+  blank artist/album. Set `artist = "Sylvia Capova"` (the sleeve's credited
+  pianist for track 4), `albumArtist = "Various Artists"`,
+  `composer = "Franz Schubert"`. **Moderate confidence only** - the sleeve
+  credits track 4 as Schubert's "Musical Moment No. 3, F minor, Russian Air"
+  specifically, and this file's title doesn't carry a number, so it's an
+  inference (No. 3 is by far Schubert's most commonly anthologized Moment
+  Musical) rather than a certain match - worth a second look if it ever matters.
+- **19. Beethoven & Brahms (Gemini Collection)**: 3 of 7 disc-1 (Beethoven)
+  tracks found - `Orch music/Beethoven - Synphony 5.mp3` (Symphony No. 5),
+  `Orch music/Beethoven - Moonlight.mp3` (Piano Sonata No. 14 "Moonlight", 1st
+  movement, pianist Dieter Goldmann), `Orch music/Beethoven - Pathetique.mp3`
+  (Piano Sonata "Pathetique", 2nd movement, pianist Dieter Goldmann). Set
+  `albumArtist = "Various Artists"`, `composer = "Ludwig van Beethoven"`,
+  `year = 1996`. The sibling files `Beethoven - Egmont Overture.mp3`,
+  `- Emperor.mp3`, `- Fidelio.mp3`, `- Für Elise.mp3`, `- Rondo.mp3`, and
+  `- Andante.mp3` are real Beethoven pieces but not on this CD's own
+  tracklist - left alone (a different, unphotographed Beethoven compilation).
+  No Brahms disc-2 fragments were found blank anywhere in the library.
+
+No fragments were found for the other 11 CDs below (Synthesizer Greatest,
+Atmospheric Synthesizer Vol.1, A Tribute To Jon Vangelis, Grieg Peer Gynt
+Everyman, Brahms Symphony No.2, Haydn, The Piano/Nyman, Romantic Piano
+Tchaikovsky & Grieg, French Organ Music, Chamber Music, Mozart Symphony 41
+Everyman) - either nothing in the library matches their tracklists at all, or
+the only matches were already-tagged files under a legitimately different
+release (not blank, nothing to add).
+
 ## Already correct - no action needed
 
 These three photographed CDs turned out to already be correctly tagged in the
