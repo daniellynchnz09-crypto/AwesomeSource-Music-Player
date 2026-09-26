@@ -130,6 +130,12 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
     // instead of opening the detail screen, until every row is deselected again.
     var selectedPaths by remember { mutableStateOf(setOf<String>()) }
     var showBulkEditDialog by remember { mutableStateOf(false) }
+    val pickCoverArt = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            viewModel.setCustomCoverArt(selectedPaths, uri)
+            selectedPaths = emptySet()
+        }
+    }
 
     fun toggleSelection(path: String) {
         selectedPaths = if (path in selectedPaths) selectedPaths - path else selectedPaths + path
@@ -185,6 +191,15 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
                     ) {
                         Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
                         Text("Edit")
+                    }
+                    // Attaches one user-picked image (e.g. a cropped photo of a
+                    // physical CD's front cover) to every selected track at once -
+                    // see MainViewModel.setCustomCoverArt.
+                    Button(
+                        onClick = { pickCoverArt.launch("image/*") },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Cover Art")
                     }
                 }
             }
@@ -569,7 +584,7 @@ private fun TrackRow(track: TrackEntity, selected: Boolean, inSelectionMode: Boo
                     .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp)),
             )
         }
-        TrackArt(track.coverArtPath, modifier = Modifier.padding(end = 12.dp))
+        TrackArt(track.customCoverArtPath ?: track.coverArtPath, modifier = Modifier.padding(end = 12.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 track.title ?: track.path.substringAfterLast('/'),

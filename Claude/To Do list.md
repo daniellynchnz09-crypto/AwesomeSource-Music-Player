@@ -246,6 +246,46 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
     read on my end (forgot to include the SQLite WAL file, which held the actual
     fix) - not a real second regression, and a useful reminder to always pull
     `-wal`/`-shm` alongside the main `.db` file when checking live app state.
+8v. ~~Given the user a way to identify/verify library entries against their own
+    physical CDs, and attach real cover art~~ - built two small features and used
+    them on a real batch of 40 photos (front+back of 20 CDs) the user took:
+    - A "custom cover art" feature: `TrackEntity` gained `customCoverArtPath`
+      (schema v4->v5, a real `Migration`, not the destructive fallback), the
+      Library screen's multi-select bulk toolbar gained a third "Cover Art"
+      button (alongside Approve/Edit) that opens the system image picker and
+      calls `MainViewModel.setCustomCoverArt`, which copies the picked image
+      into `filesDir/custom-art/` once and points every selected track's
+      `customCoverArtPath` at it. Takes priority over the existing
+      `coverArtPath` (embedded-tag/Cover-Art-Archive) wherever art is shown,
+      and is never touched by the organize pipeline, so a rescan can't lose it.
+    - Fixed a real latent bug found while building this: `updateTrackDetails`
+      and `bulkUpdateTrackDetails` never cleared `statusDetail`, so a track
+      manually resolved this way could still show a stale pipeline message
+      (e.g. "no usable artist/title to search with") under an otherwise-Verify
+      row - both now clear it, matching what `rejectProposedMatch` already did.
+    - Applied the two features to real data: read all 40 CD-case photos (see
+      `Claude/CD Case Identification Progress.md` for the full transcribed
+      tracklists and matching results, so future sessions don't need to
+      re-photograph anything), matched 2 of the 20 CDs against completely
+      untagged files already in the library (Titanic OST, 15 tracks; a Naxos
+      Grieg Peer Gynt disc, 16 tracks), wrote their sleeve-derived metadata
+      directly into the tracks' own fields (bypassing MusicBrainz, so they land
+      in Verify per the user's request rather than being auto-matched), and
+      attached the Titanic front cover as cropped art via the new feature. 3
+      more photographed CDs turned out to already be correctly tagged from an
+      earlier scan (confirmed accurate, no changes needed); the remaining 15
+      are only partially digitized or not found under any recognizable
+      filename - flagged for a future session in the same doc.
+    - Applied the 31 direct field writes via a raw SQL `UPDATE` against the
+      pulled `.db` file (app fully stopped, WAL checkpointed first, clean file
+      pushed back via `run-as`) rather than the in-app multi-select UI, which
+      needs one long-press per track - genuinely impractical for a 30-track
+      batch. Confirmed while doing this that `run-as` actually CAN write to
+      app-private storage on this setup after all - last session's "Permission
+      denied" was a git-bash argv-quoting artifact
+      (`adb shell run-as PKG sh -c '...'` as separate argv tokens vs. one
+      fully-quoted string), not a real SELinux restriction. See
+      ANDROID ARCHITECTURE.md.
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
    needs to be built once playback (Media3/ExoPlayer) is wired up.
 10. The design pass (Neo-Aero/Dark-Aero/skeuomorphic per Claude/App DESIGN.md) is

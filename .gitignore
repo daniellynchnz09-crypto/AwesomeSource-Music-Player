@@ -12,6 +12,11 @@ legacy-desktop-tagger/dist/
 # exception, added explicitly if/when needed)
 Music/
 
+# Photos of the user's own physical CD cases (copyrighted album artwork, plus
+# the user's own bookshelf/room in the background) - reference material used
+# to identify/verify library entries, never meant for the public repo.
+Music Case Images/
+
 # Legacy native Android attempt (archived, superseded by Expo/React Native)
 legacy-android-native-attempt/.gradle/
 legacy-android-native-attempt/app/build/

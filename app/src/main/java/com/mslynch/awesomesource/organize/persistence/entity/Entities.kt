@@ -39,6 +39,14 @@ data class TrackEntity(
      * back to a Cover Art Archive URL keyed by [matchedReleaseId] if one exists, or
      * a placeholder icon otherwise - see `ui/LibraryScreen.kt`'s `TrackRow`). */
     val coverArtPath: String? = null,
+    /** A user-supplied image (e.g. a cropped photo of a physical CD's front cover)
+     * set via the Library screen's "Cover Art" action - takes priority over
+     * [coverArtPath] wherever art is displayed (see `LibraryScreen.kt`'s `TrackArt`),
+     * since a photo the user deliberately chose for this exact release is more
+     * trustworthy than an auto-extracted embedded thumbnail or a Cover Art Archive
+     * guess. Never touched by the organize pipeline - only ever set by the user's own
+     * action - so a rescan or re-match can't silently replace or lose it. */
+    val customCoverArtPath: String? = null,
     val composer: String?,
     val libraryType: LibraryType?,
     val fileSizeBytes: Long,

@@ -955,6 +955,79 @@ persistent disk image rather than a potentially stale or partially-corrupt
 snapshot - unrelated to the actual bug here, but cheap insurance against the same
 kind of confusion next time.
 
+CUSTOM COVER ART, AND USING PHYSICAL CD PHOTOS TO IDENTIFY LIBRARY ENTRIES: the
+user photographed the front and back of 20 CDs from their collection (40 photos,
+`Music Case Images/` at the repo root - gitignored, since it's copyrighted album
+art plus the user's own bookshelf) so the tracklists/artists printed on the
+sleeves could be used to identify or verify matching entries in the digitized
+library, and asked for a way to attach the front covers as real cover art.
+
+**Custom cover art.** `TrackEntity` gained `customCoverArtPath` (schema v4->v5,
+a real `Migration`, same reasoning as every prior schema bump - there's now a
+real, hard-won library to preserve). The Library screen's existing multi-select
+bulk toolbar (Approve/Edit) gained a third "Cover Art" button that launches the
+system image picker (`ActivityResultContracts.GetContent("image/*")`) and calls
+`MainViewModel.setCustomCoverArt(paths, uri)`, which copies the picked image
+into `filesDir/custom-art/` once (not `cacheDir`, unlike
+`AudioTagReader.cacheArtwork`'s auto-extracted embedded-art cache - this is a
+deliberate user choice the OS shouldn't be free to evict under storage
+pressure) and points every selected track's `customCoverArtPath` at that one
+copy. `LibraryScreen`'s `TrackArt` now reads
+`track.customCoverArtPath ?: track.coverArtPath`, so a user-attached photo takes
+priority over an auto-extracted thumbnail or Cover Art Archive fetch wherever
+art is shown, and - like every other manually-written field - it's never
+touched by the organize pipeline, so a rescan can't silently replace or lose it.
+
+Also fixed a small real bug found while building this: `updateTrackDetails` and
+`bulkUpdateTrackDetails` never cleared `statusDetail`, so a track resolved
+through either one could still display a stale pipeline message (e.g. "no
+usable artist/title to search with") underneath an otherwise-clean Verify row -
+both now clear it on save, matching what `rejectProposedMatch` already did.
+
+**Applying it to real data.** Read all 40 photos, transcribed each CD's full
+tracklist/artist/label info (kept in `Claude/CD Case Identification Progress.md`
+so this doesn't need repeating), and matched 2 of the 20 CDs against files
+already in the library that had a correctly filename-parsed title/track number
+but completely blank artist/album (Titanic OST, 15 tracks; a Naxos Grieg Peer
+Gynt disc, 16 tracks). Per the user's own instruction, this was written directly
+into the tracks' real fields (`source = MANUAL_ENTRY`, `matchedReleaseId` left
+`NULL`) rather than routed through MusicBrainz - since `reviewStatus()` computes
+`VERIFY` exactly when all four core fields are present but nothing is
+"recognized", this lands the tracks in Verify for the user to review, not
+auto-Approved. One file (`09 Solveig's Song.wav`) had a pre-existing gap where
+`FilenameParser` had never actually produced a title for it at all - caught only
+because the fix's "before/after count" arithmetic came up one short, not because
+anything crashed; fixed by also setting its title while applying the album data.
+Three more of the 20 photographed CDs turned out to already be correctly tagged
+in the library from an earlier scan (confirmed accurate against the sleeve, no
+changes needed); the remaining 15 are only partially digitized (a few scattered
+tracks under generic movement titles, matched to entirely different
+compilations) or not found under any recognizable filename - left for a future
+session, with the full data preserved so nothing needs re-photographing.
+
+**How the 31 direct field writes were actually applied.** Not through the
+in-app multi-select UI - that needs one long-press per track, and 30+ fragile
+UI-automation taps for just two albums (with more to come from future CD
+batches) is genuinely impractical. Instead: pulled the live `.db` (+ `-wal`/
+`-shm`), force-stopped the app, ran the `UPDATE` statements against the local
+copy with the host's own `sqlite3`, checkpointed the WAL so a single clean file
+represents the true state, and pushed that file back over the app's copy via
+`run-as` before relaunching. This only worked because of a correction to a
+false conclusion from the previous session: **`run-as` actually CAN write to
+app-private storage on this setup.** Last session's "Permission denied" when
+attempting exactly this wasn't a real SELinux restriction - it was a git-bash
+argv-quoting artifact. `adb shell run-as PKG sh -c 'echo hi'` (five separate
+argv tokens, which is how the Bash tool's multi-arg invocation was written)
+silently mis-splits under git-bash's MSYS layer; wrapping the *entire* remote
+command as one double-quoted string instead -
+`adb shell "run-as PKG sh -c 'echo hi'"` - works perfectly, confirmed with a
+real `touch`/`cp` into the app's own `databases/` directory. This reopens
+direct on-device database surgery as a legitimate option for future one-off
+backlog cleanups where the in-app UI would be impractically slow, as long as
+the app is fully stopped first and the WAL is checkpointed before pushing a
+replacement file back (see the previous section's Mr. Bill false-alarm for what
+goes wrong if the WAL is forgotten on the *read* side instead).
+
 SUPERSEDED: the two prior attempts (Expo/React Native, and the original native
 Kotlin plan) have their own full write-ups - kept for the real bugs/fixes they
 found, not as active plans - in `Claude/ANDROID ARCHITECTURE - LEGACY ATTEMPTS.md`.

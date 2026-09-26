@@ -197,6 +197,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     genre = genre?.ifBlank { null },
                     composer = composer?.ifBlank { null },
                     source = MetadataSource.MANUAL_ENTRY,
+                    statusDetail = "",
                     updatedAt = Instant.now().toString(),
                 )
             )
@@ -241,6 +242,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     composer = composer?.ifBlank { null } ?: existing.composer,
                     year = year ?: existing.year,
                     source = MetadataSource.MANUAL_ENTRY,
+                    statusDetail = "",
                     updatedAt = Instant.now().toString(),
                 )
             }
@@ -308,6 +310,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     updatedAt = Instant.now().toString(),
                 )
             )
+        }
+    }
+
+    /** Copies a user-picked image (via [android.content.ContentResolver], from an
+     * `ACTION_GET_CONTENT`/`ACTION_OPEN_DOCUMENT` result) into app-private storage
+     * once, then points every selected track's [TrackEntity.customCoverArtPath] at
+     * that one copy - the "attach a photo of the physical CD's front cover as this
+     * album's art" action. Uses `filesDir` rather than `cacheDir` (unlike
+     * `AudioTagReader.cacheArtwork`'s auto-extracted embedded-art cache) since this is
+     * a deliberate user choice, not a derived/re-creatable cache entry, and the OS is
+     * free to clear `cacheDir` under storage pressure. */
+    fun setCustomCoverArt(paths: Set<String>, imageUri: Uri) {
+        if (paths.isEmpty()) return
+        viewModelScope.launch {
+            val savedPath = withContext(Dispatchers.IO) {
+                try {
+                    val context = getApplication<Application>()
+                    val artDir = java.io.File(context.filesDir, "custom-art").apply { mkdirs() }
+                    val mimeType = context.contentResolver.getType(imageUri)
+                    val extension = if (mimeType?.contains("png", ignoreCase = true) == true) "png" else "jpg"
+                    val destination = java.io.File(artDir, "${java.util.UUID.randomUUID()}.$extension")
+                    context.contentResolver.openInputStream(imageUri)?.use { input ->
+                        destination.outputStream().use { output -> input.copyTo(output) }
+                    } ?: return@withContext null
+                    destination.absolutePath
+                } catch (e: Exception) {
+                    null
+                }
+            } ?: return@launch
+            val updated = db.trackDao().getByPaths(paths.toList()).map { it.copy(customCoverArtPath = savedPath) }
+            db.trackDao().upsertAll(updated)
         }
     }
 

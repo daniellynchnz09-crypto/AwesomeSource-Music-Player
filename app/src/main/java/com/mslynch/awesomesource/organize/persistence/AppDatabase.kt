@@ -51,7 +51,10 @@ import com.mslynch.awesomesource.organize.persistence.entity.TrackEntity
     // Bumped 3 -> 4: TrackEntity gained updatedAt for the Library screen's "recently
     // updated" sort - same reasoning, a real migration rather than the destructive
     // fallback.
-    version = 4,
+    // Bumped 4 -> 5: TrackEntity gained customCoverArtPath, so the user can attach
+    // their own image (e.g. a cropped photo of a physical CD's front cover) as a
+    // track's art - same real-library-preservation reasoning as the migrations above.
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -78,6 +81,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN customCoverArtPath TEXT")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -85,7 +94,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "awesomesource.db",
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     // Still kept as a safety net for any version jump the explicit
                     // migrations above don't cover (e.g. a much older version 1 db).
                     .fallbackToDestructiveMigration(true)
