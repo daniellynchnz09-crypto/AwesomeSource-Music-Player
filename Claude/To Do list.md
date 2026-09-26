@@ -303,6 +303,40 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
     for parity with the bulk toolbar's Approve. Verified for real: selected
     Verify tracks in the running app, tapped Approve, watched them turn green
     and move to the Approved count.
+8x. ~~Gboard's suggestion strip rendered pinned to the very top of the screen
+    instead of docked above the keyboard, covering the top app bar's back
+    button and making it hard to navigate back~~ - real bug, reported by the
+    user with a screenshot, fixed. `MainActivity` calls `enableEdgeToEdge()`
+    but the manifest never declared `android:windowSoftInputMode`, leaving the
+    system to guess how to lay out around the IME; combined with edge-to-edge,
+    this let the IME's own window render in the wrong position on-device.
+    Fixed by adding `android:windowSoftInputMode="adjustResize"` to
+    `MainActivity` in `AndroidManifest.xml`, so the framework actually resizes
+    content around the keyboard and reports real `WindowInsets.ime` insets.
+    Verified live: rebuilt, reinstalled, opened a text field on the track
+    detail screen - the suggestion strip now docks correctly above the
+    keyboard and the back button is unobstructed.
+8y. ~~A lot of "Orch music" tracks with bird/animal/nature titles were sitting
+    unidentified in Verify/Match Found/No Match, and the user said many of
+    them come from a real CD, "Paradise: New Zealand's Natural Soundscape"~~ -
+    identified via direct database work (same backend-SQL approach as the CD
+    photo batch), not a UI feature. 41 tracks (numbered 1-52, with real gaps)
+    already had correct embedded tags for this album, which gave a verified
+    naming convention to extend: wildlife tracks credit the species' Māori
+    name as artist, pure ambience/scene tracks credit "David Clarke & Les
+    McPherson", album is "Paradise - New Zealand's Natural Soundscape" /
+    albumArtist "Nature". Filling in the numbering gaps (26-33, 53-75) turned
+    up 27 more tracks with clean but blank metadata, plus 4 tracks (55, 58,
+    69, 75) whose embedded audio headers were corrupt, which had produced a
+    bad filename-guess (e.g. "Long-Tailed Cuckoo" split into title "Tailed
+    Cuckoo" / artist "Long") and, worse, a completely wrong MusicBrainz
+    auto-match on the bare word "Cuckoo" (matched to a real Long John Baldry
+    album) that was sitting in Match Found waiting to be accepted. All 31
+    were identified and moved to Verify by direct SQL (`source='MANUAL_ENTRY'`
+    plus clearing `matchedReleaseId`/`proposed*`/the stale cached cover art
+    for the 4 bad-match tracks), landing the album at a complete, gapless 1-75
+    except track 44 ("Mud Pool", per the user - not present as a file in the
+    library at all, so nothing to tag). Verified live via search + screenshot.
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
    needs to be built once playback (Media3/ExoPlayer) is wired up.
 10. The design pass (Neo-Aero/Dark-Aero/skeuomorphic per Claude/App DESIGN.md) is

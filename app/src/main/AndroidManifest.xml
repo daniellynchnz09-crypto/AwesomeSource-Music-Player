@@ -19,7 +19,15 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.AwesomeSource">
+            <!-- Without an explicit softInputMode, edge-to-edge (enableEdgeToEdge in
+                 MainActivity) leaves the system to guess how to lay out around the
+                 keyboard, and on-device this let Gboard's suggestion-strip window
+                 render pinned to the very top of the screen instead of just above the
+                 keyboard - covering the top app bar's back button. adjustResize makes
+                 the framework actually resize the content around the IME and report
+                 real WindowInsets.ime insets, which fixed it. -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
