@@ -125,6 +125,14 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
     }
     val listState = rememberLazyListState()
 
+    // While a search query is active, the status chips/stat tiles show nothing
+    // selected - a search already ignores the status filter entirely (see the
+    // comment above), so leaving a chip visually highlighted while typing looked
+    // like the search was scoped to that one status when it never was. The real
+    // `statusFilter` is never touched here, so clearing the search box restores
+    // whatever was selected before, exactly as the user left it.
+    val displayedStatusFilter = if (viewModel.searchQuery.isBlank()) viewModel.statusFilter else emptySet()
+
     // Long-pressing a row enters selection mode (per the "select multiple entries
     // and edit their details in bulk" request); a plain tap then toggles selection
     // instead of opening the detail screen, until every row is deselected again.
@@ -230,14 +238,14 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
             }
 
             if (tracks.isNotEmpty()) {
-                StatsBar(counts, viewModel.statusFilter, onStatClick = viewModel::isolateStatusFilter)
+                StatsBar(counts, displayedStatusFilter, onStatClick = viewModel::isolateStatusFilter)
                 SearchRow(
                     query = viewModel.searchQuery,
                     field = viewModel.searchField,
                     onQueryChange = viewModel::updateSearchQuery,
                     onFieldChange = viewModel::updateSearchField,
                 )
-                StatusFilterChips(selected = viewModel.statusFilter, onToggle = viewModel::toggleStatusFilter)
+                StatusFilterChips(selected = displayedStatusFilter, onToggle = viewModel::toggleStatusFilter)
                 SortRow(mode = viewModel.sortMode, onModeChange = viewModel::updateSortMode)
             }
 
