@@ -1028,6 +1028,40 @@ the app is fully stopped first and the WAL is checkpointed before pushing a
 replacement file back (see the previous section's Mr. Bill false-alarm for what
 goes wrong if the WAL is forgotten on the *read* side instead).
 
+VERIFY COULD NEVER BECOME APPROVED - A REAL REPORTED BUG: the user approved two
+tracks sitting in Verify and they didn't move to Approved. Root cause:
+`ReviewStatus.APPROVED` requires `recognized`, and `recognized` was defined as
+purely `matchedReleaseId != null`. A `VERIFY` track (every core field already
+present, but never matched to anything - by definition, since a match would
+have made it Approved or Match Found instead) has no `matchedReleaseId` and,
+being unmatchable, never will. The "Approve" action's `withProposedAccepted()`
+only ever copies a `proposed*` draft onto a track's real fields - a Verify
+track has no draft (nothing was ever proposed for it), so every field's `?:`
+fell through to its own existing value and the whole action was a silent
+no-op. There was genuinely no way for a Verify track to ever leave Verify -
+a real design hole, not just a display glitch, and one that mattered a lot
+given the CD-photo identification work above deliberately routes tracks into
+Verify by design (per the user's own instruction).
+
+Fixed by adding `TrackEntity.userConfirmed: Boolean` (schema v5 -> v6, a real
+`Migration`) - set when the user taps Approve on a track with nothing proposed
+to copy. `reviewStatus()`'s `recognized` check became
+`matchedReleaseId != null || userConfirmed`, and `isCurated()` picked up the
+same OR-clause so an approved-via-confirmation track is protected from a
+future rescan exactly like a real match is. `withProposedAccepted()` now
+branches: copy the draft if one exists (unchanged MATCH_FOUND behavior), else
+set `userConfirmed = true` if the track is currently VERIFY, else a true no-op
+(a genuine No Match row stays untouched, same as always). Also added a
+single-track "Mark as Correct" button to `TrackDetailScreen` for the Verify
+case, alongside the existing Accept/Reject card shown for Match Found - the
+bulk toolbar's Approve button was the only way to trigger this before. This is
+very often the *only* way a budget-label classical reissue - fabricated or
+pseudonym performer credits that will never text-match a real MusicBrainz
+release, several of which surfaced during the CD-photo identification work
+above - can ever reach Approved at all. Verified for real: selected two Verify
+tracks in the running app, tapped Approve, watched both turn green and the
+Approved/Verify counts shift accordingly.
+
 SUPERSEDED: the two prior attempts (Expo/React Native, and the original native
 Kotlin plan) have their own full write-ups - kept for the real bugs/fixes they
 found, not as active plans - in `Claude/ANDROID ARCHITECTURE - LEGACY ATTEMPTS.md`.

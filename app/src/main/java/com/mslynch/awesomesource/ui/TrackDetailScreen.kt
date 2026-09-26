@@ -142,6 +142,16 @@ private fun TrackDetailForm(
         if (reviewStatus == ReviewStatus.MATCH_FOUND) {
             ProposedMatchCard(track, onAccept = onAcceptProposed, onReject = onRejectProposed)
         }
+        // A Verify track has every core field filled in but was never matched to
+        // anything, so there's no proposed draft for the bulk toolbar's "Approve" to
+        // apply - this is the single-track equivalent of that same confirmation
+        // (see MainViewModel.withProposedAccepted's doc comment for the bug this
+        // fixes: Verify previously had no way to ever become Approved).
+        if (reviewStatus == ReviewStatus.VERIFY) {
+            Button(onClick = onAcceptProposed, modifier = Modifier.fillMaxWidth()) {
+                Text("Mark as Correct")
+            }
+        }
 
         OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = artist, onValueChange = { artist = it }, label = { Text("Artist") }, modifier = Modifier.fillMaxWidth())

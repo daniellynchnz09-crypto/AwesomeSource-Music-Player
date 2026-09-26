@@ -54,7 +54,12 @@ import com.mslynch.awesomesource.organize.persistence.entity.TrackEntity
     // Bumped 4 -> 5: TrackEntity gained customCoverArtPath, so the user can attach
     // their own image (e.g. a cropped photo of a physical CD's front cover) as a
     // track's art - same real-library-preservation reasoning as the migrations above.
-    version = 5,
+    // Bumped 5 -> 6: TrackEntity gained userConfirmed, fixing a real reported bug -
+    // tapping "Approve" on a VERIFY track (complete fields, but never matched to
+    // anything) was a silent no-op, since there was no proposed draft for it to
+    // copy and no other way for a track to ever leave Verify. See
+    // TrackEntity.userConfirmed's doc comment.
+    version = 6,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -87,6 +92,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tracks ADD COLUMN userConfirmed INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -94,7 +105,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "awesomesource.db",
                 )
-                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     // Still kept as a safety net for any version jump the explicit
                     // migrations above don't cover (e.g. a much older version 1 db).
                     .fallbackToDestructiveMigration(true)

@@ -67,6 +67,20 @@ data class TrackEntity(
     val proposedTitle: String? = null,
     val proposedTrackNumber: Int? = null,
     val proposedYear: Int? = null,
+    /** Set when the user taps "Approve" on a track that has no proposed draft to
+     * accept - i.e. a [ReviewStatus.VERIFY] track, which by definition was never
+     * matched to anything ([matchedReleaseId] is null) but already has every core
+     * field filled in. Without this there was no way for such a track to ever
+     * leave Verify: a real bug report found the "Approve" button was a silent
+     * no-op for Verify tracks, since [MainViewModel.withProposedAccepted] only
+     * ever copies a `proposed*` draft onto the real fields, and a Verify track has
+     * no draft to copy. Counts as "recognized" in [reviewStatus] exactly like a
+     * real `matchedReleaseId` does, so an explicit user confirmation is treated the
+     * same as an automated one - this is very often the ONLY way a track ever
+     * reaches Approved for budget-label classical reissues whose fabricated/
+     * pseudonym performer credits (see Claude/CD Case Identification Progress.md)
+     * will never text-match a real MusicBrainz release. */
+    val userConfirmed: Boolean = false,
     /** ISO instant of the last time this row's own fields (not just a rescan
      * confirming nothing changed) were written - a scan, accept, or edit. Powers
      * the Library screen's "recently updated" sort; never read for anything else,
@@ -88,7 +102,7 @@ data class TrackEntity(
  * scan to usefully do. Not a stand-in for tag-writing - it's independent of whether
  * the file itself ever gets updated, and would be exactly as necessary even if it
  * did, since a rescan is not the same event as an intentional file edit. */
-fun TrackEntity.isCurated(): Boolean = matchedReleaseId != null || source == MetadataSource.MANUAL_ENTRY
+fun TrackEntity.isCurated(): Boolean = matchedReleaseId != null || source == MetadataSource.MANUAL_ENTRY || userConfirmed
 
 /** The four-way review classification the Library screen groups/filters by,
  * recomputed fresh from this entity's own current fields every time rather than
@@ -118,7 +132,7 @@ fun TrackEntity.isCurated(): Boolean = matchedReleaseId != null || source == Met
 fun TrackEntity.reviewStatus(): ReviewStatus {
     val hasAllDetails = !artist.isNullOrBlank() && !album.isNullOrBlank() && !title.isNullOrBlank()
     val artistConfirmed = proposedArtist.isNullOrBlank() || proposedArtist.trim().equals(artist?.trim(), ignoreCase = true)
-    return ReviewStatus.compute(hasAllDetails && artistConfirmed, recognized = matchedReleaseId != null)
+    return ReviewStatus.compute(hasAllDetails && artistConfirmed, recognized = matchedReleaseId != null || userConfirmed)
 }
 
 /** The reverse of `OrganizeLibrary.persistTrack`'s `TrackMetadata -> TrackEntity`

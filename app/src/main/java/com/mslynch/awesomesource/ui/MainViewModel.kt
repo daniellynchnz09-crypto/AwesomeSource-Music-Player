@@ -12,6 +12,7 @@ import com.mslynch.awesomesource.organize.model.MetadataSource
 import com.mslynch.awesomesource.organize.model.ReviewStatus
 import com.mslynch.awesomesource.organize.persistence.AppDatabase
 import com.mslynch.awesomesource.organize.persistence.entity.TrackEntity
+import com.mslynch.awesomesource.organize.persistence.entity.reviewStatus
 import com.mslynch.awesomesource.organize.pipeline.OrganizeLibrary
 import com.mslynch.awesomesource.organize.settings.SecureSettings
 import kotlinx.coroutines.Dispatchers
@@ -262,20 +263,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Copies a track's drafted `proposed*` fields into its real fields - the
      * "accept this draft" action a match-found row's own field values were always
      * meant to feed, without ever touching the file itself (still nothing in this
-     * pipeline writes tags back to files - see Claude/To Do list.md). A no-op for a
-     * track with nothing proposed (every `proposed*` field null) - `?:` just keeps
-     * the existing value - so calling this on a track that was never a match-found
-     * draft (e.g. a plain No Match row) is always safe. */
-    private fun TrackEntity.withProposedAccepted(): TrackEntity = copy(
-        artist = proposedArtist ?: artist,
-        albumArtist = proposedAlbumArtist ?: albumArtist,
-        album = proposedAlbum ?: album,
-        title = proposedTitle ?: title,
-        trackNumber = proposedTrackNumber ?: trackNumber,
-        year = proposedYear ?: year,
-        source = MetadataSource.ONLINE_LOOKUP,
-        updatedAt = Instant.now().toString(),
-    )
+     * pipeline writes tags back to files - see Claude/To Do list.md).
+     *
+     * A [ReviewStatus.VERIFY] track has no draft at all (every `proposed*` field is
+     * null, since it was never matched to anything) but already has every core
+     * field filled in - for that case, "Approve" instead marks
+     * [TrackEntity.userConfirmed], the user's own explicit sign-off, which
+     * [reviewStatus] treats as recognized exactly like a real match would. Without
+     * this branch, tapping Approve on a Verify track was a silent no-op (nothing to
+     * copy, so every `?:` fell through to the existing value) with no way for the
+     * track to ever leave Verify - a real bug report, and the only way many
+     * budget-label classical reissues (fabricated/pseudonym performer credits that
+     * will never text-match a real MusicBrainz release - see
+     * Claude/CD Case Identification Progress.md) can ever reach Approved.
+     *
+     * A track with neither a draft nor Verify's complete-but-unmatched fields (e.g.
+     * a genuine No Match row) falls through to a true no-op, same as always. */
+    private fun TrackEntity.withProposedAccepted(): TrackEntity {
+        val hasProposedDraft = proposedArtist != null || proposedAlbumArtist != null ||
+            proposedAlbum != null || proposedTitle != null || proposedTrackNumber != null || proposedYear != null
+        return when {
+            hasProposedDraft -> copy(
+                artist = proposedArtist ?: artist,
+                albumArtist = proposedAlbumArtist ?: albumArtist,
+                album = proposedAlbum ?: album,
+                title = proposedTitle ?: title,
+                trackNumber = proposedTrackNumber ?: trackNumber,
+                year = proposedYear ?: year,
+                source = MetadataSource.ONLINE_LOOKUP,
+                updatedAt = Instant.now().toString(),
+            )
+            reviewStatus() == ReviewStatus.VERIFY -> copy(userConfirmed = true, updatedAt = Instant.now().toString())
+            else -> this
+        }
+    }
 
     fun acceptProposedMatch(path: String) {
         viewModelScope.launch {
@@ -349,10 +370,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * rather than issuing one coroutine/DB-write/reactive-Flow-refresh per track (a
      * large selection accepted one row at a time is what's suspected to have caused
      * a real reported app hang/crash). This deliberately does NOT let the user force
-     * any status directly - it only ever applies a draft a track already has, so it
-     * can't make the status filters meaningless: a track with no proposed match
-     * (e.g. a genuine No Match row) is untouched, since every field in
-     * [withProposedAccepted] falls back to its own existing value. */
+     * any status directly - it only ever applies a draft a track already has, or (per
+     * [withProposedAccepted]) confirms an already-complete Verify track, so it can't
+     * make the status filters meaningless: a genuine No Match row (nothing proposed,
+     * and core fields still missing) is left untouched either way. */
     fun bulkAcceptProposedMatches(paths: Set<String>) {
         if (paths.isEmpty()) return
         viewModelScope.launch {

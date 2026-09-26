@@ -286,6 +286,23 @@ plugin change, KSP/toolchain compatibility toggles, JDK auto-provisioning).
       (`adb shell run-as PKG sh -c '...'` as separate argv tokens vs. one
       fully-quoted string), not a real SELinux restriction. See
       ANDROID ARCHITECTURE.md.
+8w. ~~Approving tracks in the Verify section did not move them to Approved~~ -
+    real bug, fixed. `ReviewStatus.APPROVED` requires `recognized` to be true,
+    which was defined purely as `matchedReleaseId != null` - but a VERIFY track
+    (every core field already present, just never matched to anything) has no
+    `matchedReleaseId` and never will, so the "Approve" action's
+    `withProposedAccepted()` - which only ever copies a `proposed*` draft onto
+    the real fields - was a silent no-op for it (nothing proposed to copy, so
+    every `?:` fell through to the existing value). There was no way for a
+    Verify track to *ever* leave Verify, which matters a lot given the CD-photo
+    identification work above landed dozens of tracks there. Fixed by adding
+    `TrackEntity.userConfirmed` (schema v5->v6), which counts as `recognized`
+    in `reviewStatus()` exactly like a real match does; `withProposedAccepted()`
+    now sets it when a track has nothing proposed but is currently Verify.
+    Added a single-track "Mark as Correct" button to the track detail screen
+    for parity with the bulk toolbar's Approve. Verified for real: selected
+    Verify tracks in the running app, tapped Approve, watched them turn green
+    and move to the Approved count.
 9. Playlist/queue logic (up next, add-to-queue-front/back per Claude/Design.md)
    needs to be built once playback (Media3/ExoPlayer) is wired up.
 10. The design pass (Neo-Aero/Dark-Aero/skeuomorphic per Claude/App DESIGN.md) is
