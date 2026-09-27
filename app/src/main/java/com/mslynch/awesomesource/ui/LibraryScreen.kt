@@ -89,6 +89,14 @@ import kotlin.math.roundToInt
 @Composable
 fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
     val selectedPath = viewModel.selectedTrackPath
+    // Declared before the early return below so it survives the round trip through
+    // the track detail screen: this whole function returns early while a track is
+    // open, which drops everything declared after that point out of composition
+    // entirely (not just "not recomposed" - genuinely unmounted), so a
+    // rememberLazyListState() declared later would come back as a fresh instance
+    // scrolled to the top every time a detail screen was closed - exactly what the
+    // user reported happening after accepting a match.
+    val listState = rememberLazyListState()
     if (selectedPath != null) {
         TrackDetailScreen(viewModel, path = selectedPath, onBack = { viewModel.selectTrack(null) })
         return
@@ -123,7 +131,6 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
                 }
             }
     }
-    val listState = rememberLazyListState()
 
     // While a search query is active, the status chips/stat tiles show nothing
     // selected - a search already ignores the status filter entirely (see the
