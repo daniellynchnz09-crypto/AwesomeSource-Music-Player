@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mslynch.awesomesource.organize.model.MetadataSource
@@ -379,6 +380,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val updated = db.trackDao().getByPaths(paths.toList()).map { it.withProposedAccepted() }
             db.trackDao().upsertAll(updated)
+        }
+    }
+
+    /** The "Remove" action - permanently deletes each selected track's real file
+     * (via SAF's [DocumentFile.delete], the same provider every file in the library
+     * was scanned through) and then its row (plus any artist-credit rows) from the
+     * database. This is the in-app equivalent of what was previously only possible
+     * by editing the library folder outside the app - e.g. the sampler/one-shot
+     * `.aif` files and macOS AppleDouble junk cleaned up by hand. One file that
+     * fails to delete (permission revoked, already gone, provider hiccup) doesn't
+     * abort the rest of the batch, matching the scanner's own
+     * "one bad entry can't crash a batch" rule - but it also means its database row
+     * is deliberately left alone in that case, since dropping a row whose file still
+     * exists on disk would just have a rescan silently re-add it with no record this
+     * ever happened. */
+    fun removeTracks(paths: Set<String>) {
+        if (paths.isEmpty()) return
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+            val toRemove = db.trackDao().getByPaths(paths.toList())
+            val actuallyDeleted = withContext(Dispatchers.IO) {
+                toRemove.filter { track ->
+                    runCatching { DocumentFile.fromSingleUri(context, Uri.parse(track.uri))?.delete() }
+                        .getOrDefault(false) == true
+                }.map { it.path }
+            }
+            if (actuallyDeleted.isNotEmpty()) {
+                db.trackDao().clearCreditsForPaths(actuallyDeleted)
+                db.trackDao().deleteByPaths(actuallyDeleted)
+            }
+            if (selectedTrackPath in actuallyDeleted) selectedTrackPath = null
+            refreshTrackCount()
         }
     }
 

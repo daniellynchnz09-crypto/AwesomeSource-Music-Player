@@ -131,6 +131,6 @@ class AudioTagReader(private val context: Context) {
     }
 
     companion object {
-        private val SUPPORTED_EXTENSIONS = setOf(".mp3", ".flac", ".m4a", ".mp4", ".aac", ".ogg")
+        private val SUPPORTED_EXTENSIONS = setOf(".mp3", ".flac", ".m4a", ".mp4", ".aac", ".ogg", ".aif", ".aiff")
     }
 }

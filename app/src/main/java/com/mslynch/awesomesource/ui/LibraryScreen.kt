@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -145,6 +146,7 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
     // instead of opening the detail screen, until every row is deselected again.
     var selectedPaths by remember { mutableStateOf(setOf<String>()) }
     var showBulkEditDialog by remember { mutableStateOf(false) }
+    var showRemoveConfirmDialog by remember { mutableStateOf(false) }
     val pickCoverArt = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
             viewModel.setCustomCoverArt(selectedPaths, uri)
@@ -187,34 +189,55 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
             // (see MainViewModel.bulkAcceptProposedMatches) - it can't force a
             // status, so it can't make the review-status filters meaningless.
             if (selectedPaths.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Button(
-                        onClick = {
-                            viewModel.bulkAcceptProposedMatches(selectedPaths)
-                            selectedPaths = emptySet()
-                        },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Approve")
+                // Two rows of two rather than four-across: cramming all four
+                // actions into one row left each button too narrow for its own
+                // label at default font size/padding, which wrapped text like
+                // "Approve" and "Remove" one character per line into a tall,
+                // stretched-looking pill - a real visual bug the user hit on an
+                // actual phone's width, not just a layout preference.
+                Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(
+                            onClick = {
+                                viewModel.bulkAcceptProposedMatches(selectedPaths)
+                                selectedPaths = emptySet()
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Approve")
+                        }
+                        Button(
+                            onClick = { showBulkEditDialog = true },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                            Text("Edit")
+                        }
                     }
-                    Button(
-                        onClick = { showBulkEditDialog = true },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
-                        Text("Edit")
-                    }
-                    // Attaches one user-picked image (e.g. a cropped photo of a
-                    // physical CD's front cover) to every selected track at once -
-                    // see MainViewModel.setCustomCoverArt.
-                    Button(
-                        onClick = { pickCoverArt.launch("image/*") },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text("Cover Art")
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Attaches one user-picked image (e.g. a cropped photo of a
+                        // physical CD's front cover) to every selected track at once -
+                        // see MainViewModel.setCustomCoverArt.
+                        Button(
+                            onClick = { pickCoverArt.launch("image/*") },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Cover Art")
+                        }
+                        // Permanently deletes the real file(s), not just the library
+                        // row - see MainViewModel.removeTracks's doc comment. Routed
+                        // through a confirmation dialog since it can't be undone, unlike
+                        // every other bulk action here.
+                        Button(
+                            onClick = { showRemoveConfirmDialog = true },
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                            ),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.Delete, contentDescription = null, modifier = Modifier.padding(end = 8.dp))
+                            Text("Remove")
+                        }
                     }
                 }
             }
@@ -296,6 +319,33 @@ fun LibraryScreen(viewModel: MainViewModel, onOpenSettings: () -> Unit) {
             },
         )
     }
+
+    if (showRemoveConfirmDialog) {
+        RemoveConfirmDialog(
+            trackCount = selectedPaths.size,
+            onDismiss = { showRemoveConfirmDialog = false },
+            onConfirm = {
+                viewModel.removeTracks(selectedPaths)
+                showRemoveConfirmDialog = false
+                selectedPaths = emptySet()
+            },
+        )
+    }
+}
+
+/** Guards [MainViewModel.removeTracks] - the one bulk action here with no undo,
+ * unlike Approve/Edit/Cover Art which only ever change database fields. */
+@Composable
+private fun RemoveConfirmDialog(trackCount: Int, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (trackCount == 1) "Remove this track?" else "Remove $trackCount tracks?") },
+        text = { Text("This deletes the actual audio file(s) from your device, not just the library entry. This can't be undone.") },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 /** Every field starts blank and stays optional - see [MainViewModel.bulkUpdateTrackDetails]'s

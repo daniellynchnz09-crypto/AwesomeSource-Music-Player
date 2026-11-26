@@ -73,6 +73,12 @@ interface TrackDao {
     @Query("DELETE FROM tracks WHERE path = :path")
     suspend fun deleteByPath(path: String)
 
+    @Query("DELETE FROM tracks WHERE path IN (:paths)")
+    suspend fun deleteByPaths(paths: List<String>)
+
+    @Query("DELETE FROM track_artist_credits WHERE trackPath IN (:paths)")
+    suspend fun clearCreditsForPaths(paths: List<String>)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertCredits(credits: List<TrackArtistCreditEntity>)
 

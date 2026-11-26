@@ -1,0 +1,10 @@
+# Local virtualenv - reproducible from requirements.txt, not committed.
+.venv/
+__pycache__/
+*.pyc
+
+# Decoded/reconstructed audio is derived from the user's copyrighted music
+# library and must never be committed, same rule as the top-level Music/
+# folder this draws its test tracks from.
+*.wav
+data/

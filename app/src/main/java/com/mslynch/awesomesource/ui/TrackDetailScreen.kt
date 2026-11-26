@@ -14,6 +14,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -58,6 +60,7 @@ fun TrackDetailScreen(viewModel: MainViewModel, path: String, onBack: () -> Unit
     // gap that surfaced while testing on-device: pressing back here exited the app
     // to the launcher rather than returning to the Library list.
     BackHandler(onBack = onBack)
+    var showRemoveConfirmDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -66,6 +69,15 @@ fun TrackDetailScreen(viewModel: MainViewModel, path: String, onBack: () -> Unit
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    // Permanently deletes the real file, not just this library
+                    // entry - see MainViewModel.removeTracks's doc comment. Guarded
+                    // by a confirmation dialog since every other action on this
+                    // screen only ever changes database fields.
+                    IconButton(onClick = { showRemoveConfirmDialog = true }) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Remove track", tint = MaterialTheme.colorScheme.error)
                     }
                 },
             )
@@ -94,6 +106,24 @@ fun TrackDetailScreen(viewModel: MainViewModel, path: String, onBack: () -> Unit
                 onBack()
             },
         )
+
+        if (showRemoveConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showRemoveConfirmDialog = false },
+                title = { Text("Remove this track?") },
+                text = { Text("This deletes the actual audio file from your device, not just the library entry. This can't be undone.") },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        viewModel.removeTracks(setOf(current.path))
+                        showRemoveConfirmDialog = false
+                        onBack()
+                    }) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showRemoveConfirmDialog = false }) { Text("Cancel") }
+                },
+            )
+        }
     }
 }
 
@@ -174,13 +204,36 @@ private fun TrackDetailForm(
         OutlinedTextField(value = genre, onValueChange = { genre = it }, label = { Text("Genre") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = composer, onValueChange = { composer = it }, label = { Text("Composer") }, modifier = Modifier.fillMaxWidth())
 
-        Button(
-            onClick = {
-                onSave(artist, albumArtist, album, title, trackNumberText.toIntOrNull(), yearText.toIntOrNull(), genre, composer)
-            },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Save")
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Resets every field back to the track's own last-saved values in
+            // place, rather than leaving the screen - distinct from the top bar's
+            // back arrow (which already discards unsaved typing just by navigating
+            // away): this lets a user who went down the wrong path mid-edit recover
+            // without losing their spot, e.g. after a multi-field edit they only
+            // partway regret.
+            OutlinedButton(
+                onClick = {
+                    title = track.title ?: ""
+                    artist = track.artist ?: ""
+                    albumArtist = track.albumArtist ?: ""
+                    album = track.album ?: ""
+                    trackNumberText = track.trackNumber?.toString() ?: ""
+                    yearText = track.year?.toString() ?: ""
+                    genre = track.genre ?: ""
+                    composer = track.composer ?: ""
+                },
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Cancel")
+            }
+            Button(
+                onClick = {
+                    onSave(artist, albumArtist, album, title, trackNumberText.toIntOrNull(), yearText.toIntOrNull(), genre, composer)
+                },
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Save")
+            }
         }
     }
 }

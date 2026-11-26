@@ -65,3 +65,4 @@ local.secrets.properties
 
 # Claude Code's own local session/runtime state - not project source
 .claude/scheduled_tasks.lock
+.claude/usage-guard/

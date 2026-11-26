@@ -24,7 +24,7 @@ import com.mslynch.awesomesource.organize.model.libraryPathOf
  */
 object Scanner {
 
-    private val AUDIO_EXTENSIONS = setOf(".mp3", ".flac", ".m4a", ".aac", ".ogg", ".wav")
+    private val AUDIO_EXTENSIONS = setOf(".mp3", ".flac", ".m4a", ".aac", ".ogg", ".wav", ".aif", ".aiff")
 
     /**
      * Recursively walks `root`, yielding one bare [TrackMetadata] per audio file
